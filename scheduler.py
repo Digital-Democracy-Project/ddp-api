@@ -424,10 +424,16 @@ def sync_org(org_config: dict) -> dict | None:
     # Extract voter IDs and details from Voatz
     voatz_voter_ids = set()
     voatz_details = {}
+    voatz_blacklisted_count = 0
+    voatz_no_voter_id_count = 0
     for user in voatz_users:
         flattened = flatten_voatz_user(user)
         voter_id = flattened.get("Voter_Id")
-        if voter_id and voter_id not in blacklist:
+        if not voter_id:
+            voatz_no_voter_id_count += 1
+        elif voter_id in blacklist:
+            voatz_blacklisted_count += 1
+        else:
             voatz_voter_ids.add(voter_id)
             voatz_details[voter_id] = flattened
 
@@ -438,22 +444,40 @@ def sync_org(org_config: dict) -> dict | None:
     # Extract voter IDs and emails from Brevo
     brevo_voter_ids = set()
     brevo_emails_by_voter_id = {}
+    brevo_blacklisted_count = 0
+    brevo_no_voter_id_count = 0
     for contact in brevo_contacts:
         voter_id = contact.get("attributes", {}).get("VOTER_ID")
         email = contact.get("email")
-        if voter_id:
+        if not voter_id:
+            brevo_no_voter_id_count += 1
+        elif str(voter_id).strip() in blacklist:
+            brevo_blacklisted_count += 1
+        else:
             voter_id_str = str(voter_id).strip()
-            if voter_id_str and voter_id_str not in blacklist:
-                brevo_voter_ids.add(voter_id_str)
-                if email:
-                    brevo_emails_by_voter_id[voter_id_str] = email
+            brevo_voter_ids.add(voter_id_str)
+            if email:
+                brevo_emails_by_voter_id[voter_id_str] = email
+
+    # Diagnostic logging
+    logger.info(f"  Voatz breakdown: {len(voatz_voter_ids)} valid, {voatz_blacklisted_count} blacklisted, {voatz_no_voter_id_count} no voter ID")
+    logger.info(f"  Brevo breakdown: {len(brevo_voter_ids)} valid, {brevo_blacklisted_count} blacklisted, {brevo_no_voter_id_count} no voter ID")
 
     # Calculate differences
     added_ids = voatz_voter_ids - brevo_voter_ids
     removed_ids = brevo_voter_ids - voatz_voter_ids
 
+    # Log the differences
+    logger.info(f"  Diff: {len(added_ids)} in Voatz but not Brevo, {len(removed_ids)} in Brevo but not Voatz")
+
     users_to_add = [voatz_details[vid] for vid in added_ids if vid in voatz_details]
     emails_to_remove = [brevo_emails_by_voter_id[vid] for vid in removed_ids if vid in brevo_emails_by_voter_id]
+
+    # Log how many can actually be synced (have required data)
+    if len(added_ids) != len(users_to_add):
+        logger.warning(f"  {len(added_ids) - len(users_to_add)} users to add missing details")
+    if len(removed_ids) != len(emails_to_remove):
+        logger.warning(f"  {len(removed_ids) - len(emails_to_remove)} users to remove missing email")
 
     logger.info(f"Org {org_name}: {len(users_to_add)} to add, {len(emails_to_remove)} to remove")
 
