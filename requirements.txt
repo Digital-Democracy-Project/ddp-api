@@ -1,2 +1,5 @@
 Flask
 requests
+boto3
+APScheduler
+python-dotenv

@@ -1,0 +1,24 @@
+{
+  "organizations": [
+    {
+      "name": "Organization 1",
+      "voatz_email": "user1@example.com",
+      "voatz_password": "password1",
+      "voatz_org_id": 123,
+      "brevo_api_key": "xkeysib-xxx",
+      "brevo_list_id": 57,
+      "blacklist": []
+    },
+    {
+      "name": "Organization 2",
+      "voatz_email": "user2@example.com",
+      "voatz_password": "password2",
+      "voatz_org_id": 456,
+      "brevo_api_key": "xkeysib-xxx",
+      "brevo_list_id": 58,
+      "blacklist": []
+    }
+  ],
+  "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
+  "sync_interval_minutes": 30
+}

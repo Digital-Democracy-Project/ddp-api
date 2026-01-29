@@ -1,0 +1,23 @@
+# Environment variables (contains secrets)
+.env
+.env.local
+.env.*.local
+
+# Local config with credentials
+config.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

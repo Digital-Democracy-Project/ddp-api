@@ -7,13 +7,29 @@
 # will check the Voatz API and Brevo API to determine if there have been any additions or
 # departures of Voatz users compared to what is in the Brevo CRM, then only output the changes
 # in the response body.
+#
+# The app also includes a background scheduler that periodically checks all configured
+# organizations for user updates and pushes changes to a Zapier webhook.
 
 from flask import Flask, request, jsonify
 import json
 import requests
+import logging
 # system modules
 import os
 import time
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 # session with retry for Brevo API to handle rate limiting (HTTP 429)
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -555,5 +571,33 @@ def update_segment_attribute():
 		'failures': failures
 	}), 200
 
+# Endpoint to manually trigger the sync job
+@app.route('/trigger_sync', methods=['POST'])
+def trigger_sync():
+    """Manually trigger the user sync job."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'status': 'error', 'message': 'Missing or malformed Authorization header'}), 401
+    token = auth_header.split('Bearer ')[1]
+    if token != API_BEARER_TOKEN:
+        return jsonify({'status': 'error', 'message': 'Invalid Bearer token'}), 403
+
+    try:
+        from scheduler import run_sync_job
+        run_sync_job()
+        return jsonify({'status': 'success', 'message': 'Sync job triggered'}), 200
+    except Exception as e:
+        logger.error(f"Manual sync trigger failed: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 if __name__ == '__main__':
+    # Start the background scheduler
+    try:
+        from scheduler import start_scheduler
+        start_scheduler(app)
+        logger.info("Background scheduler started")
+    except Exception as e:
+        logger.warning(f"Could not start scheduler (config may be missing): {e}")
+
     app.run(host='0.0.0.0', port=5000)
