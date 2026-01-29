@@ -44,6 +44,9 @@ STATE_CODES = {
     "WISCONSIN": "WI", "WYOMING": "WY", "DISTRICT OF COLUMBIA": "DC"
 }
 
+# Overseas users list ID
+OVERSEAS_LIST_ID = 58
+
 
 def get_state_code_from_precinct(precinct: str) -> str | None:
     """Extract state code from precinct string (e.g., 'FLORIDA-SEM-7-38-10' -> 'FL')."""
@@ -57,6 +60,44 @@ def get_state_code_from_precinct(precinct: str) -> str | None:
         return STATE_CODES.get(state_name)
 
     return None
+
+
+def is_us_phone_number(phone: str) -> bool:
+    """
+    Check if a phone number is a US number.
+
+    US numbers are:
+    - +1XXXXXXXXXX (12 chars with +)
+    - 1XXXXXXXXXX (11 digits starting with 1)
+    - XXXXXXXXXX (10 digits, assumed US)
+    """
+    if not phone:
+        return True  # No phone = treat as domestic (don't add to overseas list)
+
+    # Remove all non-digit characters except leading +
+    import re
+    cleaned = re.sub(r'[^\d+]', '', phone)
+
+    # +1XXXXXXXXXX
+    if cleaned.startswith('+1') and len(cleaned) == 12:
+        return True
+
+    # 1XXXXXXXXXX
+    if cleaned.startswith('1') and len(cleaned) == 11:
+        return True
+
+    # XXXXXXXXXX (10-digit US local)
+    if len(cleaned) == 10:
+        return True
+
+    # Also handle case where + was stripped but it's still 11 digits starting with 1
+    digits_only = re.sub(r'\D', '', phone)
+    if digits_only.startswith('1') and len(digits_only) == 11:
+        return True
+    if len(digits_only) == 10:
+        return True
+
+    return False
 
 
 def get_voatz_tokens(email: str, password: str, org_id: int) -> tuple[str, str] | None:
@@ -198,14 +239,16 @@ def flatten_voatz_user(user: dict) -> dict:
     return flattened
 
 
-def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tuple[int, int]:
+def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tuple[int, int, int]:
     """
     Add contacts to Brevo list.
 
-    Returns tuple of (successful_count, failed_count).
+    Non-US phone numbers are also added to the overseas list (ID 58).
+
+    Returns tuple of (successful_count, failed_count, overseas_count).
     """
     if not users:
-        return 0, 0
+        return 0, 0, 0
 
     headers = {
         "Accept": "application/json",
@@ -215,16 +258,29 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
 
     # Build contact list for import
     contacts = []
+    overseas_count = 0
+
     for user in users:
+        # Get raw phone for overseas check
+        raw_phone = user.get("phone", "")
+        is_overseas = not is_us_phone_number(raw_phone)
+
         # Format phone number (remove non-digits, ensure starts with 1 for US)
-        phone = user.get("phone", "")
+        phone = raw_phone
         if phone:
             phone = "".join(c for c in phone if c.isdigit())
-            if phone and not phone.startswith("1"):
+            if phone and not phone.startswith("1") and is_us_phone_number(raw_phone):
                 phone = "1" + phone
 
         # Get state code from precinct
         state_code = get_state_code_from_precinct(user.get("precinct"))
+
+        # Determine list IDs - add to overseas list if non-US phone
+        if is_overseas and raw_phone:
+            list_ids = [list_id, OVERSEAS_LIST_ID]
+            overseas_count += 1
+        else:
+            list_ids = [list_id]
 
         contact = {
             "email": user.get("emailAddress"),
@@ -238,7 +294,7 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
                 "BIRTH_DATE": user.get("birthDate"),
                 "SIGNUP_TIMESTAMP": user.get("timestamp"),
             },
-            "listIds": [list_id],
+            "listIds": list_ids,
             "updateEnabled": True,
             "emailBlacklisted": False,
             "smsBlacklisted": False
@@ -281,7 +337,10 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
         # Rate limiting delay
         time.sleep(0.1)
 
-    return successful, failed
+    if overseas_count > 0:
+        logger.info(f"Added {overseas_count} overseas users to list {OVERSEAS_LIST_ID}")
+
+    return successful, failed, overseas_count
 
 
 def remove_contacts_from_brevo(api_key: str, list_id: int, emails: list[str]) -> tuple[int, int]:
@@ -399,12 +458,12 @@ def sync_org(org_config: dict) -> dict | None:
     logger.info(f"Org {org_name}: {len(users_to_add)} to add, {len(emails_to_remove)} to remove")
 
     # Perform sync operations
-    added_success, added_failed = 0, 0
+    added_success, added_failed, overseas_count = 0, 0, 0
     removed_success, removed_failed = 0, 0
 
     if users_to_add:
-        added_success, added_failed = add_contacts_to_brevo(brevo_api_key, brevo_list_id, users_to_add)
-        logger.info(f"Org {org_name}: Added {added_success} contacts ({added_failed} failed)")
+        added_success, added_failed, overseas_count = add_contacts_to_brevo(brevo_api_key, brevo_list_id, users_to_add)
+        logger.info(f"Org {org_name}: Added {added_success} contacts ({added_failed} failed, {overseas_count} overseas)")
 
     if emails_to_remove:
         removed_success, removed_failed = remove_contacts_from_brevo(brevo_api_key, brevo_list_id, emails_to_remove)
@@ -419,6 +478,7 @@ def sync_org(org_config: dict) -> dict | None:
             "brevo_total": len(brevo_voter_ids),
             "added_count": added_success,
             "added_failed": added_failed,
+            "overseas_count": overseas_count,
             "removed_count": removed_success,
             "removed_failed": removed_failed,
             "synced_at": datetime.utcnow().isoformat() + "Z"
@@ -436,12 +496,14 @@ def push_alert_to_zapier(webhook_url: str, summaries: list[dict]) -> bool:
     # Build summary message
     total_added = sum(s.get("added_count", 0) for s in summaries)
     total_removed = sum(s.get("removed_count", 0) for s in summaries)
+    total_overseas = sum(s.get("overseas_count", 0) for s in summaries)
 
     payload = {
         "alert_type": "user_sync_complete",
-        "summary": f"Synced {len(summaries)} organizations: {total_added} added, {total_removed} removed",
+        "summary": f"Synced {len(summaries)} organizations: {total_added} added ({total_overseas} overseas), {total_removed} removed",
         "total_added": total_added,
         "total_removed": total_removed,
+        "total_overseas": total_overseas,
         "organizations_synced": len(summaries),
         "details": summaries,
         "synced_at": datetime.utcnow().isoformat() + "Z"
