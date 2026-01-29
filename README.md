@@ -39,20 +39,30 @@ Credentials are stored in AWS Secrets Manager. The secret should contain:
 
 ```json
 {
+  "brevo_api_key": "xkeysib-xxx",
+  "blacklist": ["voter_id_1", "voter_id_2"],
   "organizations": [
     {
-      "name": "Organization 1",
+      "name": "Federal",
       "voatz_email": "user@example.com",
       "voatz_password": "password",
-      "voatz_org_id": 123,
-      "brevo_api_key": "xkeysib-xxx",
-      "brevo_list_id": 57,
-      "blacklist": []
+      "voatz_org_id": 800000097,
+      "brevo_list_id": 57
+    },
+    {
+      "name": "Arizona",
+      "voatz_email": "user@example.com",
+      "voatz_password": "password",
+      "voatz_org_id": 800000118,
+      "brevo_list_id": 58
     }
   ],
-  "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/"
+  "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
+  "sync_interval_minutes": 30
 }
 ```
+
+**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. Each org only needs its own `brevo_list_id`. Per-org values override root-level if specified.
 
 ### Option 2: Local Config File (Development)
 
@@ -78,18 +88,19 @@ aws secretsmanager create-secret \
   --name ddp-api/org-credentials \
   --description "DDP-API organization credentials for Voatz/Brevo sync" \
   --secret-string '{
+    "brevo_api_key": "xkeysib-...",
+    "blacklist": [],
     "organizations": [
       {
-        "name": "Org 1",
+        "name": "Federal",
         "voatz_email": "...",
         "voatz_password": "...",
-        "voatz_org_id": 123,
-        "brevo_api_key": "...",
-        "brevo_list_id": 57,
-        "blacklist": []
+        "voatz_org_id": 800000097,
+        "brevo_list_id": 57
       }
     ],
-    "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/"
+    "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
+    "sync_interval_minutes": 30
   }'
 ```
 
