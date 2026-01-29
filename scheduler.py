@@ -287,11 +287,22 @@ def run_sync_job():
         organizations = config.get("organizations", [])
         webhook_url = config.get("zapier_webhook_url")
 
+        # Root-level defaults (shared across all orgs)
+        root_brevo_api_key = config.get("brevo_api_key")
+        root_blacklist = config.get("blacklist", [])
+
         all_updates = []
 
         for org_config in organizations:
             try:
-                update = check_org_updates(org_config)
+                # Merge root-level defaults with org-specific config
+                # Org-level values override root-level if present
+                merged_config = {
+                    **org_config,
+                    "brevo_api_key": org_config.get("brevo_api_key") or root_brevo_api_key,
+                    "blacklist": org_config.get("blacklist") if org_config.get("blacklist") else root_blacklist,
+                }
+                update = check_org_updates(merged_config)
                 if update:
                     all_updates.append(update)
             except Exception as e:
