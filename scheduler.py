@@ -275,6 +275,14 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
         # Get state code from precinct
         state_code = get_state_code_from_precinct(user.get("precinct"))
 
+        # Title case names
+        first_name = user.get("firstName")
+        last_name = user.get("lastName")
+        if first_name:
+            first_name = first_name.title()
+        if last_name:
+            last_name = last_name.title()
+
         # Determine list IDs - add to overseas list if non-US phone
         if is_overseas and raw_phone:
             list_ids = [list_id, OVERSEAS_LIST_ID]
@@ -285,8 +293,8 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
         contact = {
             "email": user.get("emailAddress"),
             "attributes": {
-                "FIRSTNAME": user.get("firstName"),
-                "LASTNAME": user.get("lastName"),
+                "FIRSTNAME": first_name,
+                "LASTNAME": last_name,
                 "VOTER_ID": user.get("Voter_Id"),
                 "BALLOT_ID": user.get("precinct"),
                 "RESIDENCE_STATE": state_code,
