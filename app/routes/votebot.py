@@ -199,7 +199,7 @@ async def votebot_websocket(
         # Connect to VoteBot WebSocket
         async with websockets.connect(
             votebot_ws_url,
-            extra_headers={"Authorization": f"Bearer {config['api_key']}"},
+            additional_headers={"Authorization": f"Bearer {config['api_key']}"},
         ) as votebot_ws:
 
             async def client_to_votebot():
