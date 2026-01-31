@@ -256,6 +256,135 @@ Attach this policy to your EC2 instance's IAM role.
 aws secretsmanager get-secret-value --secret-id ddp-api/org-credentials
 ```
 
+## Deployment (EC2)
+
+### 1. Update Code
+
+```bash
+ssh ubuntu@your-ec2-instance
+cd /path/to/DDP-API
+git pull origin main
+```
+
+### 2. Install Dependencies
+
+```bash
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3. Update Environment Variables
+
+Add VoteBot configuration to `.env`:
+
+```bash
+echo "VOTEBOT_SERVICE_URL=http://localhost:8000" >> .env
+echo "VOTEBOT_WS_URL=ws://localhost:8000/ws/chat" >> .env
+echo "VOTEBOT_API_KEY=your-votebot-api-key" >> .env
+```
+
+### 4. Update Systemd Service
+
+Edit the service file to use uvicorn instead of Flask:
+
+```bash
+sudo nano /etc/systemd/system/ddp-api.service
+```
+
+```ini
+[Unit]
+Description=DDP-API Service
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/path/to/DDP-API
+Environment="PATH=/path/to/DDP-API/venv/bin"
+ExecStart=/path/to/DDP-API/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Reload and restart:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart ddp-api
+sudo systemctl status ddp-api
+```
+
+### 5. Update Nginx Configuration
+
+Edit your nginx config to add WebSocket support:
+
+```bash
+sudo nano /etc/nginx/sites-available/ddp-api
+```
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    # Standard HTTP endpoints
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket support for /votebot/ws
+    location /votebot/ws {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400;  # 24 hours for long-lived connections
+    }
+}
+```
+
+Test and reload nginx:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 6. Verify Deployment
+
+```bash
+# Check service status
+sudo systemctl status ddp-api
+
+# View logs
+sudo journalctl -u ddp-api -f
+
+# Test endpoints
+curl http://localhost:5000/health
+curl https://your-domain.com/health
+```
+
+### Rollback (if needed)
+
+If issues arise, revert to the legacy Flask app:
+
+```bash
+# Edit systemd service
+sudo nano /etc/systemd/system/ddp-api.service
+# Change ExecStart to: /path/to/venv/bin/python middleware.py
+
+sudo systemctl daemon-reload
+sudo systemctl restart ddp-api
+```
+
 ## Related Repositories
 
 - [VoteBot](https://github.com/VotingRightsBrigade/votebot) - RAG-powered chatbot for civic engagement
