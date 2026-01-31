@@ -66,7 +66,7 @@ async def votebot_chat(
         timeout=60.0,
     ) as client:
         try:
-            response = await client.post("/api/v1/chat", json=request)
+            response = await client.post("/votebot/v1/chat", json=request)
 
             if response.status_code >= 400:
                 raise HTTPException(
@@ -108,7 +108,7 @@ async def votebot_chat_stream(
             try:
                 async with client.stream(
                     "POST",
-                    "/api/v1/chat/stream",
+                    "/votebot/v1/chat/stream",
                     json=request,
                 ) as response:
                     if response.status_code >= 400:
@@ -156,7 +156,7 @@ async def votebot_feedback(
         timeout=30.0,
     ) as client:
         try:
-            response = await client.post("/api/v1/chat/feedback", json=request)
+            response = await client.post("/votebot/v1/chat/feedback", json=request)
 
             if response.status_code >= 400:
                 raise HTTPException(
