@@ -194,7 +194,7 @@ async def votebot_sync_bill(
         timeout=120.0,  # Sync can take a while
     ) as client:
         try:
-            response = await client.post("/api/v1/sync/bill", json=request)
+            response = await client.post("/votebot/v1/sync/bill", json=request)
 
             if response.status_code >= 400:
                 raise HTTPException(
@@ -232,7 +232,7 @@ async def votebot_sync_legislator(
         timeout=120.0,  # Sync can take a while
     ) as client:
         try:
-            response = await client.post("/api/v1/sync/legislator", json=request)
+            response = await client.post("/votebot/v1/sync/legislator", json=request)
 
             if response.status_code >= 400:
                 raise HTTPException(
@@ -270,7 +270,7 @@ async def votebot_sync_organization(
         timeout=120.0,  # Sync can take a while
     ) as client:
         try:
-            response = await client.post("/api/v1/sync/organization", json=request)
+            response = await client.post("/votebot/v1/sync/organization", json=request)
 
             if response.status_code >= 400:
                 raise HTTPException(
