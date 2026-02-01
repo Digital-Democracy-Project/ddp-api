@@ -174,6 +174,120 @@ async def votebot_feedback(
             )
 
 
+@router.post("/sync/bill")
+async def votebot_sync_bill(
+    request: dict,
+    token: str = Depends(bearer_auth),
+):
+    """
+    Proxy bill sync requests to VoteBot service.
+
+    Request body should contain:
+    - webflow_item_id: str (primary identifier)
+    - slug: str (fallback identifier)
+    """
+    config = get_votebot_config()
+
+    async with httpx.AsyncClient(
+        base_url=config["service_url"],
+        headers={"Authorization": f"Bearer {config['api_key']}"},
+        timeout=120.0,  # Sync can take a while
+    ) as client:
+        try:
+            response = await client.post("/api/v1/sync/bill", json=request)
+
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text,
+                )
+
+            return response.json()
+
+        except httpx.RequestError as e:
+            logger.error(f"VoteBot bill sync request failed: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"VoteBot service unavailable: {e}",
+            )
+
+
+@router.post("/sync/legislator")
+async def votebot_sync_legislator(
+    request: dict,
+    token: str = Depends(bearer_auth),
+):
+    """
+    Proxy legislator sync requests to VoteBot service.
+
+    Request body should contain:
+    - webflow_item_id: str (primary identifier)
+    - slug: str (fallback identifier)
+    """
+    config = get_votebot_config()
+
+    async with httpx.AsyncClient(
+        base_url=config["service_url"],
+        headers={"Authorization": f"Bearer {config['api_key']}"},
+        timeout=120.0,  # Sync can take a while
+    ) as client:
+        try:
+            response = await client.post("/api/v1/sync/legislator", json=request)
+
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text,
+                )
+
+            return response.json()
+
+        except httpx.RequestError as e:
+            logger.error(f"VoteBot legislator sync request failed: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"VoteBot service unavailable: {e}",
+            )
+
+
+@router.post("/sync/organization")
+async def votebot_sync_organization(
+    request: dict,
+    token: str = Depends(bearer_auth),
+):
+    """
+    Proxy organization sync requests to VoteBot service.
+
+    Request body should contain:
+    - webflow_item_id: str (primary identifier)
+    - slug: str (fallback identifier)
+    """
+    config = get_votebot_config()
+
+    async with httpx.AsyncClient(
+        base_url=config["service_url"],
+        headers={"Authorization": f"Bearer {config['api_key']}"},
+        timeout=120.0,  # Sync can take a while
+    ) as client:
+        try:
+            response = await client.post("/api/v1/sync/organization", json=request)
+
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text,
+                )
+
+            return response.json()
+
+        except httpx.RequestError as e:
+            logger.error(f"VoteBot organization sync request failed: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"VoteBot service unavailable: {e}",
+            )
+
+
 @router.websocket("/ws")
 async def votebot_websocket(
     websocket: WebSocket,
