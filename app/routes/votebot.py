@@ -288,6 +288,49 @@ async def votebot_sync_organization(
             )
 
 
+@router.post("/sync/unified")
+async def votebot_sync_unified(
+    request: dict,
+    token: str = Depends(bearer_auth),
+):
+    """
+    Proxy unified sync requests to VoteBot service.
+
+    Request body should contain:
+    - content_type: str ("bill", "legislator", "organization", "webpage", "training")
+    - mode: str ("single" or "batch")
+    - webflow_id: optional str
+    - slug: optional str
+    - include_pdfs: optional bool
+    - include_openstates: optional bool
+    - dry_run: optional bool
+    """
+    config = get_votebot_config()
+
+    async with httpx.AsyncClient(
+        base_url=config["service_url"],
+        headers={"Authorization": f"Bearer {config['api_key']}"},
+        timeout=300.0,  # Unified sync can take longer
+    ) as client:
+        try:
+            response = await client.post("/votebot/v1/sync/unified", json=request)
+
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text,
+                )
+
+            return response.json()
+
+        except httpx.RequestError as e:
+            logger.error(f"VoteBot unified sync request failed: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"VoteBot service unavailable: {e}",
+            )
+
+
 @router.websocket("/ws")
 async def votebot_websocket(
     websocket: WebSocket,
