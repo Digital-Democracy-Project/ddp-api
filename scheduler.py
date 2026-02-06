@@ -10,6 +10,8 @@ import requests
 import time
 from datetime import datetime
 
+from email_validator import validate_email, EmailNotValidError
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -46,6 +48,28 @@ STATE_CODES = {
 
 # Overseas users list ID
 OVERSEAS_LIST_ID = 58
+
+
+def clean_email(email: str) -> str | None:
+    """Pre-clean an email address before validation, then normalize via email-validator."""
+    if not email:
+        return None
+    # Strip whitespace
+    email = email.strip()
+    # Strip leading/trailing dots from the whole address
+    email = email.strip(".")
+    # Clean up dots around the @ sign
+    if "@" in email:
+        local, domain = email.rsplit("@", 1)
+        local = local.rstrip(".")
+        domain = domain.strip(".")
+        email = f"{local}@{domain}"
+    # Validate and normalize
+    try:
+        result = validate_email(email, check_deliverability=False)
+        return result.normalized
+    except EmailNotValidError:
+        return None
 
 
 def get_state_code_from_precinct(precinct: str) -> str | None:
@@ -290,8 +314,15 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
         else:
             list_ids = [list_id]
 
+        # Clean, validate, and normalize email
+        raw_email = user.get("emailAddress")
+        email = clean_email(raw_email)
+        if not email:
+            logger.warning(f"Skipping contact with invalid email: {raw_email}")
+            continue
+
         contact = {
-            "email": user.get("emailAddress"),
+            "email": email,
             "attributes": {
                 "FIRSTNAME": first_name,
                 "LASTNAME": last_name,
