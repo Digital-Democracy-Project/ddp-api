@@ -314,6 +314,20 @@ async def compare_users(data: dict):
         brevo_details_by_id[v_id] for v_id in removed_ids if v_id in brevo_details_by_id
     ]
 
+    # Detect VOATZ_ID mismatches for contacts present in both systems
+    matching_ids = api_set & brevo_set - blacklist
+    voatz_id_mismatches = []
+    for vid in matching_ids:
+        voatz_customer_id = voter_details_by_id.get(vid, {}).get("customerId")
+        brevo_voatz_id = brevo_details_by_id.get(vid, {}).get("customerId")
+        if voatz_customer_id and str(voatz_customer_id) != str(brevo_voatz_id or ""):
+            voatz_id_mismatches.append({
+                "voter_id": vid,
+                "email": brevo_details_by_id.get(vid, {}).get("emailAddress"),
+                "voatz_customer_id": voatz_customer_id,
+                "brevo_voatz_id": brevo_voatz_id,
+            })
+
     return {
         "status": "success",
         "diff_mode": True,
@@ -323,4 +337,6 @@ async def compare_users(data: dict):
         "brevo_total": len(brevo_set),
         "new_count": len(added_users),
         "removed_count": len(removed_users),
+        "voatz_id_mismatches": voatz_id_mismatches,
+        "voatz_id_mismatch_count": len(voatz_id_mismatches),
     }
