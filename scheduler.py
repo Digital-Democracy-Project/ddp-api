@@ -231,6 +231,7 @@ def flatten_voatz_user(user: dict) -> dict:
     """Flatten Voatz user structure for comparison."""
     flattened = {
         "Voter_Id": None,
+        "customerId": user.get("customerId"),
         "firstName": None,
         "lastName": None,
         "emailAddress": user.get("email"),
@@ -327,6 +328,7 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
                 "FIRSTNAME": first_name,
                 "LASTNAME": last_name,
                 "VOTER_ID": user.get("Voter_Id"),
+                "VOATZ_ID": user.get("customerId"),
                 "BALLOT_ID": user.get("precinct"),
                 "RESIDENCE_STATE": state_code,
                 "RESIDENCE_ZIP": user.get("zip5"),

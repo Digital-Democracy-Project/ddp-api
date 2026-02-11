@@ -212,6 +212,7 @@ async def compare_users(data: dict):
     def flatten_user(user):
         flattened = {
             "Voter_Id": None,
+            "customerId": user.get("customerId"),
             "firstName": None,
             "lastName": None,
             "emailAddress": user.get("email"),
@@ -293,6 +294,7 @@ async def compare_users(data: dict):
                     brevo_ids.append(voter_id_str)
                     brevo_details_by_id[voter_id_str] = {
                         "Voter_Id": voter_id_str,
+                        "customerId": contact.get("attributes", {}).get("VOATZ_ID"),
                         "emailAddress": contact.get("email"),
                         "firstName": contact.get("attributes", {}).get("FIRSTNAME"),
                         "lastName": contact.get("attributes", {}).get("LASTNAME"),
