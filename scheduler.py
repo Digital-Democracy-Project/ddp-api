@@ -430,7 +430,7 @@ def remove_contacts_from_brevo(api_key: str, list_id: int, emails: list[str]) ->
     return successful, failed
 
 
-def update_voatz_ids_in_brevo(api_key: str, updates: list[dict]) -> int:
+def update_voatz_ids_in_brevo(api_key: str, list_id: int, updates: list[dict]) -> int:
     """
     Update VOATZ_ID attribute for existing Brevo contacts.
 
@@ -459,6 +459,7 @@ def update_voatz_ids_in_brevo(api_key: str, updates: list[dict]) -> int:
         chunk = contacts[i:i + chunk_size]
         payload = {
             "jsonBody": chunk,
+            "listIds": [list_id],
             "updateExistingContacts": True
         }
 
@@ -599,7 +600,7 @@ def sync_org(org_config: dict) -> dict | None:
         logger.info(f"Org {org_name}: Removed {removed_success} contacts ({removed_failed} failed)")
 
     if voatz_id_updates:
-        voatz_id_updated_count = update_voatz_ids_in_brevo(brevo_api_key, voatz_id_updates)
+        voatz_id_updated_count = update_voatz_ids_in_brevo(brevo_api_key, brevo_list_id, voatz_id_updates)
         logger.info(f"Org {org_name}: Updated VOATZ_ID for {voatz_id_updated_count} contacts")
 
     # Return summary if there were any changes
