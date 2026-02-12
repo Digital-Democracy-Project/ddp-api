@@ -244,23 +244,23 @@ async def compare_users(data: dict):
 
         return flattened
 
-    voter_ids_from_api = []
-    voter_details_by_id = {}
+    voatz_customer_ids = set()
+    voatz_details_by_id = {}
 
     for user in users:
-        kv = user.get("orgVerificationStatus", {}).get("keyValues", [])
-        for pair in kv:
-            if pair.get("key") == "Voter_Id":
-                voter_id = str(pair.get("value")).strip()
-                if voter_id not in blacklist:
-                    voter_ids_from_api.append(voter_id)
-                    voter_details_by_id[voter_id] = flatten_user(user)
-                break
+        flattened = flatten_user(user)
+        customer_id = flattened.get("customerId")
+        voter_id = flattened.get("Voter_Id")
+        if not customer_id:
+            continue
+        if voter_id and voter_id in blacklist:
+            continue
+        cid_str = str(customer_id)
+        voatz_customer_ids.add(cid_str)
+        voatz_details_by_id[cid_str] = flattened
 
-    api_set = set(voter_ids_from_api)
-
-    # Fetch voter list from Brevo
-    brevo_ids = []
+    # Fetch contacts from Brevo (keyed by VOATZ_ID)
+    brevo_customer_ids = set()
     brevo_details_by_id = {}
     headers_brevo = {"Accept": "application/json", "api-key": brevo_api_key}
     offset = 0
@@ -287,56 +287,42 @@ async def compare_users(data: dict):
         brevo_data = brevo_resp.json()
         contacts = brevo_data.get("contacts", [])
         for contact in contacts:
+            voatz_id = contact.get("attributes", {}).get("VOATZ_ID")
             voter_id = contact.get("attributes", {}).get("VOTER_ID")
-            if voter_id:
-                voter_id_str = str(voter_id).strip()
-                if voter_id_str and voter_id_str not in blacklist:
-                    brevo_ids.append(voter_id_str)
-                    brevo_details_by_id[voter_id_str] = {
-                        "Voter_Id": voter_id_str,
-                        "customerId": contact.get("attributes", {}).get("VOATZ_ID"),
-                        "emailAddress": contact.get("email"),
-                        "firstName": contact.get("attributes", {}).get("FIRSTNAME"),
-                        "lastName": contact.get("attributes", {}).get("LASTNAME"),
-                    }
+            email = contact.get("email")
+            if not voatz_id:
+                continue
+            if voter_id and str(voter_id).strip() in blacklist:
+                continue
+            cid_str = str(voatz_id).strip()
+            brevo_customer_ids.add(cid_str)
+            brevo_details_by_id[cid_str] = {
+                "customerId": cid_str,
+                "Voter_Id": str(voter_id).strip() if voter_id else None,
+                "emailAddress": email,
+                "firstName": contact.get("attributes", {}).get("FIRSTNAME"),
+                "lastName": contact.get("attributes", {}).get("LASTNAME"),
+            }
 
         if len(contacts) < limit:
             break
         offset += limit
 
-    brevo_set = set(brevo_ids)
+    added_ids = voatz_customer_ids - brevo_customer_ids
+    removed_ids = brevo_customer_ids - voatz_customer_ids
 
-    added_ids = api_set - brevo_set - blacklist
-    removed_ids = brevo_set - api_set - blacklist
-
-    added_users = [voter_details_by_id[v_id] for v_id in added_ids if v_id in voter_details_by_id]
+    added_users = [voatz_details_by_id[cid] for cid in added_ids if cid in voatz_details_by_id]
     removed_users = [
-        brevo_details_by_id[v_id] for v_id in removed_ids if v_id in brevo_details_by_id
+        brevo_details_by_id[cid] for cid in removed_ids if cid in brevo_details_by_id
     ]
-
-    # Detect VOATZ_ID mismatches for contacts present in both systems
-    matching_ids = api_set & brevo_set - blacklist
-    voatz_id_mismatches = []
-    for vid in matching_ids:
-        voatz_customer_id = voter_details_by_id.get(vid, {}).get("customerId")
-        brevo_voatz_id = brevo_details_by_id.get(vid, {}).get("customerId")
-        if voatz_customer_id and str(voatz_customer_id) != str(brevo_voatz_id or ""):
-            voatz_id_mismatches.append({
-                "voter_id": vid,
-                "email": brevo_details_by_id.get(vid, {}).get("emailAddress"),
-                "voatz_customer_id": voatz_customer_id,
-                "brevo_voatz_id": brevo_voatz_id,
-            })
 
     return {
         "status": "success",
         "diff_mode": True,
         "added_users": added_users,
         "removed_users": removed_users,
-        "api_total": len(api_set),
-        "brevo_total": len(brevo_set),
+        "api_total": len(voatz_customer_ids),
+        "brevo_total": len(brevo_customer_ids),
         "new_count": len(added_users),
         "removed_count": len(removed_users),
-        "voatz_id_mismatches": voatz_id_mismatches,
-        "voatz_id_mismatch_count": len(voatz_id_mismatches),
     }
