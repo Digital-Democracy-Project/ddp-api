@@ -74,7 +74,8 @@ The app includes a background scheduler that periodically:
 1. Checks all configured organizations for user changes (Voatz vs Brevo, matched by `customerId`/`VOATZ_ID`)
 2. Automatically adds new users to Brevo (with overseas detection)
 3. Removes departed users from Brevo lists
-4. Pushes alerts to a Zapier webhook when changes are detected
+4. Removes Brevo contacts that have no `VOATZ_ID` (no active Voatz account) from the list
+5. Pushes alerts to a Zapier webhook when changes are detected
 
 ## Configuration
 
