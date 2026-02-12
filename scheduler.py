@@ -489,12 +489,15 @@ def sync_org(org_config: dict) -> dict | None:
     brevo_emails_by_customer_id = {}
     brevo_blacklisted_count = 0
     brevo_no_voatz_id_count = 0
+    brevo_no_voatz_id_emails = []
     for contact in brevo_contacts:
         voatz_id = contact.get("attributes", {}).get("VOATZ_ID")
         voter_id = contact.get("attributes", {}).get("VOTER_ID")
         email = contact.get("email")
         if not voatz_id:
             brevo_no_voatz_id_count += 1
+            if email:
+                brevo_no_voatz_id_emails.append(email)
         elif voter_id and str(voter_id).strip() in blacklist:
             brevo_blacklisted_count += 1
         else:
@@ -516,6 +519,9 @@ def sync_org(org_config: dict) -> dict | None:
 
     users_to_add = [voatz_details[cid] for cid in added_ids if cid in voatz_details]
     emails_to_remove = [brevo_emails_by_customer_id[cid] for cid in removed_ids if cid in brevo_emails_by_customer_id]
+
+    # Also remove contacts that have no VOATZ_ID (no active Voatz account)
+    emails_to_remove.extend(brevo_no_voatz_id_emails)
 
     # Log how many can actually be synced (have required data)
     if len(added_ids) != len(users_to_add):

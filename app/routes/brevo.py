@@ -262,6 +262,7 @@ async def compare_users(data: dict):
     # Fetch contacts from Brevo (keyed by VOATZ_ID)
     brevo_customer_ids = set()
     brevo_details_by_id = {}
+    brevo_no_voatz_id_users = []
     headers_brevo = {"Accept": "application/json", "api-key": brevo_api_key}
     offset = 0
     limit = 500
@@ -291,6 +292,14 @@ async def compare_users(data: dict):
             voter_id = contact.get("attributes", {}).get("VOTER_ID")
             email = contact.get("email")
             if not voatz_id:
+                if email:
+                    brevo_no_voatz_id_users.append({
+                        "customerId": None,
+                        "Voter_Id": str(voter_id).strip() if voter_id else None,
+                        "emailAddress": email,
+                        "firstName": contact.get("attributes", {}).get("FIRSTNAME"),
+                        "lastName": contact.get("attributes", {}).get("LASTNAME"),
+                    })
                 continue
             if voter_id and str(voter_id).strip() in blacklist:
                 continue
@@ -316,6 +325,9 @@ async def compare_users(data: dict):
         brevo_details_by_id[cid] for cid in removed_ids if cid in brevo_details_by_id
     ]
 
+    # Also include contacts with no VOATZ_ID (no active Voatz account)
+    removed_users.extend(brevo_no_voatz_id_users)
+
     return {
         "status": "success",
         "diff_mode": True,
@@ -323,6 +335,7 @@ async def compare_users(data: dict):
         "removed_users": removed_users,
         "api_total": len(voatz_customer_ids),
         "brevo_total": len(brevo_customer_ids),
+        "no_voatz_id_count": len(brevo_no_voatz_id_users),
         "new_count": len(added_users),
         "removed_count": len(removed_users),
     }
