@@ -690,6 +690,13 @@ def run_sync_job():
         root_brevo_api_key = config.get("brevo_api_key")
         root_blacklist = config.get("blacklist", [])
 
+        # Sort so Federal syncs last — state orgs claim shared phone numbers
+        # first, since SMS campaigns are state-focused.
+        organizations = sorted(
+            organizations,
+            key=lambda o: o.get("name", "").lower() == "federal"
+        )
+
         all_summaries = []
         # Track phone ownership across orgs to avoid Brevo unique-key conflicts
         claimed_phones = {}
@@ -733,6 +740,12 @@ def run_full_sync_job():
         # Root-level defaults (shared across all orgs)
         root_brevo_api_key = config.get("brevo_api_key")
         root_blacklist = config.get("blacklist", [])
+
+        # Sort so Federal syncs last (same as regular sync)
+        organizations = sorted(
+            organizations,
+            key=lambda o: o.get("name", "").lower() == "federal"
+        )
 
         all_summaries = []
         claimed_phones = {}
