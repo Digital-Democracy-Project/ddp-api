@@ -49,6 +49,7 @@ DDP-API/
 | `/create_event` | POST | — | Create a new event |
 | `/update_segment_attribute` | POST | Bearer | Bulk update attributes in a Brevo segment |
 | `/trigger_sync` | POST | Bearer | Manually trigger the scheduled sync job |
+| `/trigger_full_sync` | POST | Bearer | Manually trigger a full-attribute sync (re-imports all users) |
 
 ### VoteBot Proxy Endpoints
 
@@ -70,12 +71,20 @@ DDP-API/
 
 ## Scheduled User Sync
 
-The app includes a background scheduler that periodically:
+The app includes a background scheduler with two sync jobs:
+
+### Regular Sync (every 30 min)
 1. Checks all configured organizations for user changes (Voatz vs Brevo, matched by `customerId`/`VOATZ_ID`)
 2. Automatically adds new users to Brevo (with overseas detection)
 3. Removes departed users from Brevo lists
 4. Removes Brevo contacts that have no `VOATZ_ID` (no active Voatz account) from the list
 5. Pushes alerts to a Zapier webhook when changes are detected
+
+### Full-Attribute Sync (1st of each month at 2 AM)
+1. Fetches all users from Voatz for each organization
+2. Re-imports all valid users to Brevo via `updateExistingContacts`, overwriting any changed attributes (name, phone, address, etc.)
+3. Pushes a Zapier alert with `alert_type: "full_attribute_sync_complete"`
+4. Can be triggered manually via `POST /trigger_full_sync`
 
 ## Configuration
 

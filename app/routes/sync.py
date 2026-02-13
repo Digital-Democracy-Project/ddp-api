@@ -21,3 +21,16 @@ async def trigger_sync(token: str = Depends(bearer_auth)):
     except Exception as e:
         logger.error(f"Manual sync trigger failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/trigger_full_sync")
+async def trigger_full_sync(token: str = Depends(bearer_auth)):
+    """Manually trigger a full-attribute sync job."""
+    try:
+        from scheduler import run_full_sync_job
+
+        run_full_sync_job()
+        return {"status": "success", "message": "Full-attribute sync job triggered"}
+    except Exception as e:
+        logger.error(f"Manual full sync trigger failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

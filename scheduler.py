@@ -13,6 +13,7 @@ from datetime import datetime
 from email_validator import validate_email, EmailNotValidError
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from config import get_config
@@ -561,6 +562,78 @@ def sync_org(org_config: dict) -> dict | None:
     return None
 
 
+def full_sync_org(org_config: dict) -> dict | None:
+    """
+    Full-attribute sync for a single organization.
+
+    Re-imports all Voatz users to Brevo, updating any changed attributes.
+    Unlike sync_org(), this does not diff — it pushes all users through
+    add_contacts_to_brevo() which uses updateExistingContacts: True.
+    """
+    org_name = org_config.get("name", "Unknown")
+    org_id = org_config["voatz_org_id"]
+    blacklist = set(str(b) for b in org_config.get("blacklist", []))
+    brevo_api_key = org_config["brevo_api_key"]
+    brevo_list_id = org_config["brevo_list_id"]
+
+    logger.info(f"Full-attribute sync for org: {org_name} (ID: {org_id})")
+
+    # Authenticate with Voatz
+    tokens = get_voatz_tokens(
+        org_config["voatz_email"],
+        org_config["voatz_password"],
+        org_id
+    )
+    if not tokens:
+        logger.error(f"Failed to authenticate for org: {org_name}")
+        return None
+
+    ws_token, csrf_token = tokens
+
+    # Fetch all Voatz users
+    voatz_users = fetch_voatz_users(ws_token, csrf_token, org_id)
+    logger.info(f"Fetched {len(voatz_users)} users from Voatz for {org_name}")
+
+    # Flatten and filter
+    users_to_sync = []
+    blacklisted_count = 0
+    no_customer_id_count = 0
+
+    for user in voatz_users:
+        flattened = flatten_voatz_user(user)
+        customer_id = flattened.get("customerId")
+        voter_id = flattened.get("Voter_Id")
+
+        if not customer_id:
+            no_customer_id_count += 1
+        elif voter_id and voter_id in blacklist:
+            blacklisted_count += 1
+        else:
+            users_to_sync.append(flattened)
+
+    logger.info(f"  Breakdown: {len(users_to_sync)} valid, {blacklisted_count} blacklisted, {no_customer_id_count} no customer ID")
+
+    if not users_to_sync:
+        logger.info(f"No users to sync for {org_name}")
+        return None
+
+    # Push all users to Brevo (updates existing contacts matched by email)
+    added_success, added_failed, overseas_count = add_contacts_to_brevo(
+        brevo_api_key, brevo_list_id, users_to_sync
+    )
+    logger.info(f"Org {org_name}: Synced {added_success} contacts ({added_failed} failed, {overseas_count} overseas)")
+
+    return {
+        "organization_name": org_name,
+        "organization_id": org_id,
+        "voatz_total": len(voatz_users),
+        "synced_count": added_success,
+        "synced_failed": added_failed,
+        "overseas_count": overseas_count,
+        "synced_at": datetime.utcnow().isoformat() + "Z"
+    }
+
+
 def push_alert_to_zapier(webhook_url: str, summaries: list[dict]) -> bool:
     """Push sync summary alert to Zapier webhook."""
     if not webhook_url:
@@ -638,6 +711,69 @@ def run_sync_job():
     logger.info("Scheduled user sync job completed")
 
 
+def run_full_sync_job():
+    """Full-attribute sync job - re-imports all users to update attributes."""
+    logger.info("Starting full-attribute sync job")
+
+    try:
+        config = get_config()
+        organizations = config.get("organizations", [])
+        webhook_url = config.get("zapier_webhook_url")
+
+        # Root-level defaults (shared across all orgs)
+        root_brevo_api_key = config.get("brevo_api_key")
+        root_blacklist = config.get("blacklist", [])
+
+        all_summaries = []
+
+        for org_config in organizations:
+            try:
+                # Merge root-level defaults with org-specific config
+                merged_config = {
+                    **org_config,
+                    "brevo_api_key": org_config.get("brevo_api_key") or root_brevo_api_key,
+                    "blacklist": org_config.get("blacklist") if org_config.get("blacklist") else root_blacklist,
+                }
+                summary = full_sync_org(merged_config)
+                if summary:
+                    all_summaries.append(summary)
+            except Exception as e:
+                org_name = org_config.get("name", "Unknown")
+                logger.error(f"Error in full sync for org {org_name}: {e}")
+
+        # Send alert to Zapier
+        if all_summaries:
+            total_synced = sum(s.get("synced_count", 0) for s in all_summaries)
+            total_overseas = sum(s.get("overseas_count", 0) for s in all_summaries)
+
+            payload = {
+                "alert_type": "full_attribute_sync_complete",
+                "summary": f"Full-attribute sync for {len(all_summaries)} organizations: {total_synced} contacts updated ({total_overseas} overseas)",
+                "total_synced": total_synced,
+                "total_overseas": total_overseas,
+                "organizations_synced": len(all_summaries),
+                "details": all_summaries,
+                "synced_at": datetime.utcnow().isoformat() + "Z"
+            }
+
+            if webhook_url:
+                try:
+                    response = requests.post(webhook_url, json=payload, timeout=30)
+                    if response.status_code == 200:
+                        logger.info(f"Sent full sync alert to Zapier: {total_synced} contacts updated")
+                    else:
+                        logger.error(f"Zapier webhook failed: {response.status_code} - {response.text}")
+                except Exception as e:
+                    logger.error(f"Zapier webhook error: {e}")
+        else:
+            logger.info("No organizations synced in full-attribute sync")
+
+    except Exception as e:
+        logger.error(f"Full-attribute sync job failed: {e}")
+
+    logger.info("Full-attribute sync job completed")
+
+
 # Scheduler instance
 _scheduler = None
 
@@ -662,8 +798,16 @@ def start_scheduler(app=None):
         replace_existing=True
     )
 
+    _scheduler.add_job(
+        run_full_sync_job,
+        trigger=CronTrigger(day=1, hour=2),
+        id="full_attribute_sync_job",
+        name="Full-attribute sync on 1st of each month",
+        replace_existing=True
+    )
+
     _scheduler.start()
-    logger.info(f"Scheduler started - syncing every {interval_minutes} minutes")
+    logger.info(f"Scheduler started - syncing every {interval_minutes} minutes, full-attribute sync on 1st of month at 2 AM")
 
     # Run immediately on startup
     run_sync_job()
