@@ -205,7 +205,7 @@ def fetch_brevo_contacts(api_key: str, list_id: int) -> list[dict]:
                 base_url,
                 headers=headers,
                 params={"limit": limit, "offset": offset},
-                timeout=60
+                timeout=180
             )
             if response.status_code != 200:
                 logger.error(f"Brevo fetch failed: {response.status_code} - {response.text}")
