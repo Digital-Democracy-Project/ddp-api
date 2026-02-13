@@ -518,6 +518,12 @@ def sync_org(org_config: dict) -> dict | None:
     # Log the differences
     logger.info(f"  Diff: {len(added_ids)} in Voatz but not Brevo, {len(removed_ids)} in Brevo but not Voatz")
 
+    # Debug: log mismatched IDs to diagnose recurring add/remove loops
+    if added_ids:
+        logger.info(f"  DEBUG added_ids (Voatz not in Brevo): {sorted(added_ids)}")
+    if removed_ids:
+        logger.info(f"  DEBUG removed_ids (Brevo not in Voatz): {sorted(removed_ids)}")
+
     users_to_add = [voatz_details[cid] for cid in added_ids if cid in voatz_details]
     emails_to_remove = [brevo_emails_by_customer_id[cid] for cid in removed_ids if cid in brevo_emails_by_customer_id]
 
