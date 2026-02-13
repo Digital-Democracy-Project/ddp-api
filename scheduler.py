@@ -8,6 +8,7 @@ automatically syncs changes to Brevo, and sends alerts to Zapier.
 import logging
 import requests
 import time
+from collections import Counter
 from datetime import datetime
 
 from email_validator import validate_email, EmailNotValidError
@@ -282,6 +283,19 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
         "api-key": api_key
     }
 
+    # Pre-scan to find phone numbers shared by multiple contacts.
+    # Brevo treats `sms` as a unique key — if two contacts share a phone,
+    # the second import fails. Only set `sms` for unique phones.
+    phone_counts = Counter()
+    for user in users:
+        raw_phone = user.get("phone", "")
+        if raw_phone:
+            digits = "".join(c for c in raw_phone if c.isdigit())
+            if digits:
+                if not digits.startswith("1") and is_us_phone_number(raw_phone):
+                    digits = "1" + digits
+                phone_counts[digits] += 1
+
     # Build contact list for import
     contacts = []
     overseas_count = 0
@@ -342,11 +356,13 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
             "smsBlacklisted": False
         }
 
-        # Add phone as attribute only (not as "sms" field, which Brevo
-        # treats as a unique key — causes conflicts when two contacts
-        # share a phone number but have different emails)
+        # Add phone/SMS if available. Only set the `sms` field (which
+        # Brevo treats as a unique key) when the phone is not shared by
+        # another contact — otherwise the import would conflict.
         if phone:
             contact["attributes"]["WHATSAPP"] = phone
+            if phone_counts.get(phone, 0) <= 1:
+                contact["sms"] = phone
 
         contacts.append(contact)
 
