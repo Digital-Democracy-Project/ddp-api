@@ -482,6 +482,7 @@ def sync_org(org_config: dict) -> dict | None:
             if not email:
                 voatz_invalid_email_count += 1
             else:
+                email = email.lower()
                 voatz_emails.add(email)
                 voatz_details_by_email[email] = flattened
 
