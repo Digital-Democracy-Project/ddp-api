@@ -356,13 +356,12 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
             "smsBlacklisted": False
         }
 
-        # Add phone/SMS if available. Only set the `sms` field (which
-        # Brevo treats as a unique key) when the phone is not shared by
-        # another contact — otherwise the import would conflict.
-        if phone:
+        # Add phone/SMS if available. Brevo treats both `sms` and
+        # `WHATSAPP` as unique keys — skip both when a phone number is
+        # shared by multiple contacts to avoid import conflicts.
+        if phone and phone_counts.get(phone, 0) <= 1:
+            contact["sms"] = phone
             contact["attributes"]["WHATSAPP"] = phone
-            if phone_counts.get(phone, 0) <= 1:
-                contact["sms"] = phone
 
         contacts.append(contact)
 
