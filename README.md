@@ -44,7 +44,7 @@ DDP-API/
 |----------|--------|------|-------------|
 | `/get_tokens` | POST | Bearer | Authenticate with Voatz and receive WS/CSRF tokens |
 | `/get_users` | POST | — | Retrieve users from Voatz (supports `?mode=diff_only`) |
-| `/user_updates` | POST | — | Compare Voatz users with Brevo contacts (matched by customerId/VOATZ_ID) |
+| `/user_updates` | POST | — | Compare Voatz users with Brevo contacts |
 | `/get_events` | POST | — | List events for an organization |
 | `/create_event` | POST | — | Create a new event |
 | `/update_segment_attribute` | POST | Bearer | Bulk update attributes in a Brevo segment |
@@ -74,11 +74,10 @@ DDP-API/
 The app includes a background scheduler with two sync jobs:
 
 ### Regular Sync (every 30 min)
-1. Checks all configured organizations for user changes (Voatz vs Brevo, matched by `customerId`/`VOATZ_ID`)
+1. Checks all configured organizations for user changes (Voatz vs Brevo, matched by email address)
 2. Automatically adds new users to Brevo (with overseas detection)
-3. Removes departed users from Brevo lists
-4. Removes Brevo contacts that have no `VOATZ_ID` (no active Voatz account) from the list
-5. Pushes alerts to a Zapier webhook when changes are detected
+3. Removes departed users from Brevo lists (contacts whose email is not in Voatz)
+4. Pushes alerts to a Zapier webhook when changes are detected
 
 ### Full-Attribute Sync (1st of each month at 2 AM)
 1. Fetches all users from Voatz for each organization
