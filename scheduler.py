@@ -8,7 +8,6 @@ automatically syncs changes to Brevo, and sends alerts to Zapier.
 import logging
 import requests
 import time
-from collections import Counter
 from datetime import datetime
 
 from email_validator import validate_email, EmailNotValidError
@@ -266,35 +265,30 @@ def flatten_voatz_user(user: dict) -> dict:
     return flattened
 
 
-def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tuple[int, int, int]:
+def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict],
+                          claimed_phones: dict | None = None) -> tuple[int, int, int]:
     """
     Add contacts to Brevo list.
 
     Non-US phone numbers are also added to the overseas list (ID 58).
+
+    claimed_phones is a dict mapping formatted phone → email. It tracks which
+    contact "owns" each phone across orgs. Brevo treats sms and WHATSAPP as
+    unique keys, so only the first contact to claim a phone gets those fields.
 
     Returns tuple of (successful_count, failed_count, overseas_count).
     """
     if not users:
         return 0, 0, 0
 
+    if claimed_phones is None:
+        claimed_phones = {}
+
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
         "api-key": api_key
     }
-
-    # Pre-scan to find phone numbers shared by multiple contacts.
-    # Brevo treats `sms` as a unique key — if two contacts share a phone,
-    # the second import fails. Only set `sms` for unique phones.
-    phone_counts = Counter()
-    for user in users:
-        raw_phone = user.get("phone", "")
-        if raw_phone:
-            digits = "".join(c for c in raw_phone if c.isdigit())
-            if digits:
-                if not digits.startswith("1") and is_us_phone_number(raw_phone):
-                    digits = "1" + digits
-                phone_counts[digits] += 1
 
     # Build contact list for import
     contacts = []
@@ -357,11 +351,14 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict]) -> tupl
         }
 
         # Add phone/SMS if available. Brevo treats both `sms` and
-        # `WHATSAPP` as unique keys — skip both when a phone number is
-        # shared by multiple contacts to avoid import conflicts.
-        if phone and phone_counts.get(phone, 0) <= 1:
-            contact["sms"] = phone
-            contact["attributes"]["WHATSAPP"] = phone
+        # `WHATSAPP` as unique keys — only set them if this contact owns
+        # the phone (first to claim it) or already owns it (same email).
+        if phone:
+            owner = claimed_phones.get(phone)
+            if owner is None or owner == email.lower():
+                contact["sms"] = phone
+                contact["attributes"]["WHATSAPP"] = phone
+                claimed_phones[phone] = email.lower()
 
         contacts.append(contact)
 
@@ -447,7 +444,7 @@ def remove_contacts_from_brevo(api_key: str, list_id: int, emails: list[str]) ->
     return successful, failed
 
 
-def sync_org(org_config: dict) -> dict | None:
+def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | None:
     """
     Sync users for a single organization.
 
@@ -507,6 +504,8 @@ def sync_org(org_config: dict) -> dict | None:
     logger.info(f"Fetched {len(brevo_contacts)} contacts from Brevo for {org_name}")
 
     # Extract emails from Brevo (for diff matching)
+    if claimed_phones is None:
+        claimed_phones = {}
     brevo_emails = set()
     brevo_blacklisted_count = 0
     brevo_no_email_count = 0
@@ -519,6 +518,11 @@ def sync_org(org_config: dict) -> dict | None:
             brevo_blacklisted_count += 1
         else:
             brevo_emails.add(email.lower())
+            # Seed claimed_phones from existing Brevo contacts so we don't
+            # conflict with phones already assigned to contacts on other lists
+            whatsapp = contact.get("attributes", {}).get("WHATSAPP")
+            if whatsapp:
+                claimed_phones[str(whatsapp)] = email.lower()
 
     # Diagnostic logging
     logger.info(f"  Voatz breakdown: {len(voatz_emails)} valid, {voatz_blacklisted_count} blacklisted, {voatz_no_customer_id_count} no customer ID, {voatz_invalid_email_count} invalid email")
@@ -541,7 +545,7 @@ def sync_org(org_config: dict) -> dict | None:
     removed_success, removed_failed = 0, 0
 
     if users_to_add:
-        added_success, added_failed, overseas_count = add_contacts_to_brevo(brevo_api_key, brevo_list_id, users_to_add)
+        added_success, added_failed, overseas_count = add_contacts_to_brevo(brevo_api_key, brevo_list_id, users_to_add, claimed_phones)
         logger.info(f"Org {org_name}: Added {added_success} contacts ({added_failed} failed, {overseas_count} overseas)")
 
     if emails_to_remove:
@@ -566,7 +570,7 @@ def sync_org(org_config: dict) -> dict | None:
     return None
 
 
-def full_sync_org(org_config: dict) -> dict | None:
+def full_sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | None:
     """
     Full-attribute sync for a single organization.
 
@@ -623,7 +627,7 @@ def full_sync_org(org_config: dict) -> dict | None:
 
     # Push all users to Brevo (updates existing contacts matched by email)
     added_success, added_failed, overseas_count = add_contacts_to_brevo(
-        brevo_api_key, brevo_list_id, users_to_sync
+        brevo_api_key, brevo_list_id, users_to_sync, claimed_phones
     )
     logger.info(f"Org {org_name}: Synced {added_success} contacts ({added_failed} failed, {overseas_count} overseas)")
 
@@ -687,6 +691,8 @@ def run_sync_job():
         root_blacklist = config.get("blacklist", [])
 
         all_summaries = []
+        # Track phone ownership across orgs to avoid Brevo unique-key conflicts
+        claimed_phones = {}
 
         for org_config in organizations:
             try:
@@ -696,7 +702,7 @@ def run_sync_job():
                     "brevo_api_key": org_config.get("brevo_api_key") or root_brevo_api_key,
                     "blacklist": org_config.get("blacklist") if org_config.get("blacklist") else root_blacklist,
                 }
-                summary = sync_org(merged_config)
+                summary = sync_org(merged_config, claimed_phones)
                 if summary:
                     all_summaries.append(summary)
             except Exception as e:
@@ -729,6 +735,7 @@ def run_full_sync_job():
         root_blacklist = config.get("blacklist", [])
 
         all_summaries = []
+        claimed_phones = {}
 
         for org_config in organizations:
             try:
@@ -738,7 +745,7 @@ def run_full_sync_job():
                     "brevo_api_key": org_config.get("brevo_api_key") or root_brevo_api_key,
                     "blacklist": org_config.get("blacklist") if org_config.get("blacklist") else root_blacklist,
                 }
-                summary = full_sync_org(merged_config)
+                summary = full_sync_org(merged_config, claimed_phones)
                 if summary:
                     all_summaries.append(summary)
             except Exception as e:
