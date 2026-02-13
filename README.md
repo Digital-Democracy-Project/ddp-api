@@ -75,9 +75,11 @@ The app includes a background scheduler with two sync jobs:
 
 ### Regular Sync (every 30 min)
 1. Checks all configured organizations for user changes (Voatz vs Brevo, matched by email address)
-2. Automatically adds new users to Brevo (with overseas detection)
+2. Automatically adds new users to Brevo (with overseas detection and shared-phone deduplication)
 3. Removes departed users from Brevo lists (contacts whose email is not in Voatz)
 4. Pushes alerts to a Zapier webhook when changes are detected
+
+**Note:** Brevo treats `sms` and `WHATSAPP` as unique keys. When multiple contacts share a phone number, only contacts with a unique phone get the `sms`/`WHATSAPP` fields set to avoid import conflicts.
 
 ### Full-Attribute Sync (1st of each month at 2 AM)
 1. Fetches all users from Voatz for each organization
