@@ -28,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import routers
-from app.routes import voatz_router, brevo_router, sync_router, votebot_router
+from app.routes import voatz_router, brevo_router, sync_router, votebot_router, webflow_router
 
 
 @asynccontextmanager
@@ -81,6 +81,7 @@ app.include_router(voatz_router)
 app.include_router(brevo_router)
 app.include_router(sync_router)
 app.include_router(votebot_router)
+app.include_router(webflow_router)
 
 
 @app.get("/")

@@ -18,3 +18,7 @@ email-validator>=2.0.0
 
 # Environment variables
 python-dotenv>=1.0.0
+
+# Webflow CMS management (install from local path or git)
+# pip install -e /path/to/FillWebflowFields
+webflow-cms>=1.0.0

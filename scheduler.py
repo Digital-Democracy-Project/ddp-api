@@ -798,6 +798,114 @@ def run_full_sync_job():
     logger.info("Full-attribute sync job completed")
 
 
+# ------------------------------------------------------------------
+# Webflow CMS scheduled jobs
+# ------------------------------------------------------------------
+
+def _get_webflow_client():
+    """Instantiate a WebflowClient from config/env."""
+    import os
+    try:
+        config = get_config()
+    except Exception:
+        config = {}
+    token = config.get("webflow_api_token") or os.getenv("WEBFLOW_API_TOKEN", "")
+    if not token:
+        logger.error("WEBFLOW_API_TOKEN not configured — skipping Webflow job")
+        return None, None, None
+    bills_cid = config.get("webflow_bills_collection_id") or os.getenv("WEBFLOW_COLLECTION_ID", "")
+    orgs_cid = config.get("webflow_orgs_collection_id") or os.getenv("WEBFLOW_ORGS_COLLECTION_ID", "")
+    from webflow_cms import WebflowClient
+    return WebflowClient(token), bills_cid, orgs_cid
+
+
+def run_webflow_fill_session_code():
+    """Scheduled job: fill session-code/bill-prefix/bill-number."""
+    logger.info("Starting Webflow fill-session-code job")
+    try:
+        client, bills_cid, _ = _get_webflow_client()
+        if not client or not bills_cid:
+            return
+        from webflow_cms.services.fill_session_code import SessionCodeService
+        result = SessionCodeService(client).fill(bills_cid)
+        logger.info(f"Fill session-code: {result.items_updated} updated, {result.items_failed} failed")
+    except Exception as e:
+        logger.error(f"Webflow fill-session-code job failed: {e}")
+
+
+def run_webflow_fill_map_url():
+    """Scheduled job: fill map-url and set visibility."""
+    logger.info("Starting Webflow fill-map-url job")
+    try:
+        client, bills_cid, _ = _get_webflow_client()
+        if not client or not bills_cid:
+            return
+        from webflow_cms.services.fill_map_url import MapUrlService
+        result = MapUrlService(client).fill(bills_cid)
+        logger.info(f"Fill map-url: {result.items_updated} updated, {result.items_failed} failed")
+    except Exception as e:
+        logger.error(f"Webflow fill-map-url job failed: {e}")
+
+
+def run_webflow_bill_org_sync():
+    """Scheduled job: sync bill-org references."""
+    logger.info("Starting Webflow bill-org sync job")
+    try:
+        client, bills_cid, orgs_cid = _get_webflow_client()
+        if not client or not bills_cid or not orgs_cid:
+            return
+        from webflow_cms.services.bill_org_sync import BillOrgSyncService
+        result = BillOrgSyncService(client).sync_bill_org_references(bills_cid, orgs_cid)
+        logger.info(f"Bill-org sync: {result.references_added} refs added, {len(result.errors)} errors")
+    except Exception as e:
+        logger.error(f"Webflow bill-org sync job failed: {e}")
+
+
+def run_webflow_org_about_parse():
+    """Scheduled job: parse about-organization into sub-fields."""
+    logger.info("Starting Webflow org-about-parse job")
+    try:
+        client, _, orgs_cid = _get_webflow_client()
+        if not client or not orgs_cid:
+            return
+        from webflow_cms.services.bill_org_sync import BillOrgSyncService
+        updated = BillOrgSyncService(client).parse_about_fields(orgs_cid)
+        logger.info(f"Org about-parse: {updated} orgs updated")
+    except Exception as e:
+        logger.error(f"Webflow org-about-parse job failed: {e}")
+
+
+def run_webflow_check_org_missing():
+    """Scheduled job: check for missing org fields, send Zapier hooks."""
+    logger.info("Starting Webflow check-org-missing job")
+    try:
+        client, _, orgs_cid = _get_webflow_client()
+        if not client or not orgs_cid:
+            return
+        from webflow_cms.services.bill_org_sync import BillOrgSyncService
+        fields = ["about-organization", "website", "email", "contact-form", "description-4"]
+        results = BillOrgSyncService(client).check_missing_fields(orgs_cid, fields)
+        logger.info(f"Check org missing: {len(results)} orgs with gaps")
+    except Exception as e:
+        logger.error(f"Webflow check-org-missing job failed: {e}")
+
+
+def run_webflow_find_duplicates():
+    """Scheduled job: find duplicate bills (report only, no resolution)."""
+    logger.info("Starting Webflow find-duplicates job")
+    try:
+        client, bills_cid, _ = _get_webflow_client()
+        if not client or not bills_cid:
+            return
+        from webflow_cms.services.duplicate_bills import DuplicateBillsService
+        groups = DuplicateBillsService(client).find_duplicates(bills_cid)
+        dups = [g for g in groups if g.group_type == "duplicate"]
+        comps = [g for g in groups if g.group_type == "companion"]
+        logger.info(f"Find duplicates: {len(dups)} duplicate groups, {len(comps)} companion groups")
+    except Exception as e:
+        logger.error(f"Webflow find-duplicates job failed: {e}")
+
+
 # Scheduler instance
 _scheduler = None
 
@@ -830,8 +938,62 @@ def start_scheduler(app=None):
         replace_existing=True
     )
 
+    # Webflow CMS jobs
+    _scheduler.add_job(
+        run_webflow_fill_session_code,
+        trigger=IntervalTrigger(hours=6),
+        id="webflow_fill_session_code",
+        name="Fill session-code/bill-prefix/bill-number every 6 hours",
+        replace_existing=True
+    )
+
+    _scheduler.add_job(
+        run_webflow_fill_map_url,
+        trigger=IntervalTrigger(hours=6),
+        id="webflow_fill_map_url",
+        name="Fill map-url and set visibility every 6 hours",
+        replace_existing=True
+    )
+
+    _scheduler.add_job(
+        run_webflow_bill_org_sync,
+        trigger=IntervalTrigger(hours=12),
+        id="webflow_bill_org_sync",
+        name="Sync bill-org references every 12 hours",
+        replace_existing=True
+    )
+
+    _scheduler.add_job(
+        run_webflow_org_about_parse,
+        trigger=CronTrigger(day_of_week="mon", hour=3),
+        id="webflow_org_about_parse",
+        name="Parse about-organization fields weekly (Mon 3 AM)",
+        replace_existing=True
+    )
+
+    _scheduler.add_job(
+        run_webflow_check_org_missing,
+        trigger=CronTrigger(day_of_week="mon", hour=4),
+        id="webflow_check_org_missing",
+        name="Check for missing org fields weekly (Mon 4 AM)",
+        replace_existing=True
+    )
+
+    _scheduler.add_job(
+        run_webflow_find_duplicates,
+        trigger=CronTrigger(day_of_week="sun", hour=2),
+        id="webflow_find_duplicates",
+        name="Find duplicate bills weekly (Sun 2 AM)",
+        replace_existing=True
+    )
+
     _scheduler.start()
-    logger.info(f"Scheduler started - syncing every {interval_minutes} minutes, full-attribute sync on 1st of month at 2 AM")
+    logger.info(
+        f"Scheduler started - user sync every {interval_minutes}min, "
+        f"full-attribute sync monthly, "
+        f"Webflow CMS jobs: session-code/map-url 6h, bill-org 12h, "
+        f"about-parse Mon 3AM, missing-check Mon 4AM, duplicates Sun 2AM"
+    )
 
     # Run immediately on startup
     run_sync_job()
