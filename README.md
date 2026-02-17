@@ -11,6 +11,7 @@ This middleware handles:
 - **Brevo Segment Updates** - Bulk update contact attributes in Brevo segments
 - **Scheduled Sync** - Automatically check for user updates and push to Zapier
 - **VoteBot Proxy** - Proxy chat requests to the VoteBot RAG service (HTTP and WebSocket)
+- **Webflow CMS Management** - Fill, sync, check, and manage Webflow CMS items via the [`webflow_cms`](https://github.com/VotingRightsBrigade/FillWebflowFields) package
 
 ## Project Structure
 
@@ -25,11 +26,13 @@ DDP-API/
 │   │   ├── voatz.py         # Voatz API endpoints
 │   │   ├── brevo.py         # Brevo API endpoints
 │   │   ├── sync.py          # Sync trigger endpoint
-│   │   └── votebot.py       # VoteBot proxy endpoints
+│   │   ├── votebot.py       # VoteBot proxy endpoints
+│   │   └── webflow.py       # Webflow CMS management endpoints
 │   └── schemas/
-│       └── common.py        # Pydantic request/response models
+│       ├── common.py        # Pydantic request/response models
+│       └── webflow.py       # Webflow request/response models
 ├── config.py                # Configuration loader (AWS/local)
-├── scheduler.py             # Background sync job
+├── scheduler.py             # Background sync & Webflow CMS jobs
 ├── middleware.py            # Legacy Flask app (deprecated)
 ├── requirements.txt
 ├── .env.example
@@ -60,6 +63,39 @@ DDP-API/
 | `/votebot/feedback` | POST | Bearer | Proxy feedback submissions |
 | `/votebot/ws` | WebSocket | — | Bidirectional WebSocket proxy to VoteBot |
 
+### Webflow CMS Endpoints
+
+All Webflow endpoints require Bearer token authentication.
+
+#### Fill endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/webflow/fill/gov-url` | POST | Bearer | Set gov-url on a single CMS item |
+| `/webflow/fill/session-code` | POST | Bearer | Fill session-code, bill-prefix, and bill-number from open-states URL |
+| `/webflow/fill/map-url` | POST | Bearer | Fill map-url and set bill visibility |
+
+#### Sync endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/webflow/sync/bill-org` | POST | Bearer | Sync bill-org references (populate orgs' bills-support/bills-oppose) |
+| `/webflow/sync/org-about-fields` | POST | Bearer | Parse about-organization text into structured sub-fields |
+
+#### Check endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/webflow/check/org-missing-fields` | POST | Bearer | Check organizations for missing fields, optionally send Zapier hooks |
+| `/webflow/check/duplicates` | POST | Bearer | Find duplicate and companion bills |
+
+#### Resolve / Delete endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/webflow/resolve/duplicate-group` | POST | Bearer | Migrate content from anomalous duplicates to the correct item, then delete |
+| `/webflow/items/{item_id}` | DELETE | Bearer | Delete a CMS item, optionally removing references from other collections first |
+
 ### Health Endpoints
 
 | Endpoint | Method | Description |
@@ -87,6 +123,19 @@ The app includes a background scheduler with two sync jobs:
 3. Pushes a Zapier alert with `alert_type: "full_attribute_sync_complete"`
 4. Can be triggered manually via `POST /trigger_full_sync`
 
+### Webflow CMS Jobs
+
+These jobs run automatically if `WEBFLOW_API_TOKEN` is configured:
+
+| Job | Schedule | Description |
+|-----|----------|-------------|
+| Fill session-code | Every 6 hours | Parse open-states URLs to fill session-code, bill-prefix, and bill-number |
+| Fill map-url | Every 6 hours | Build map URLs from open-states URLs and set bill visibility |
+| Bill-org sync | Every 12 hours | Sync bill references into org support/oppose fields |
+| Org about-parse | Weekly (Mon 3 AM) | Parse about-organization text into structured sub-fields |
+| Org missing-fields check | Weekly (Mon 4 AM) | Check orgs for missing contact details, send Zapier alerts |
+| Find duplicates | Weekly (Sun 2 AM) | Detect duplicate and companion bills (report only, no auto-resolution) |
+
 ## Configuration
 
 ### Environment Variables
@@ -102,6 +151,9 @@ The app includes a background scheduler with two sync jobs:
 | `VOTEBOT_SERVICE_URL` | VoteBot HTTP service URL | `http://localhost:8000` |
 | `VOTEBOT_WS_URL` | VoteBot WebSocket URL | `ws://localhost:8000/ws/chat` |
 | `VOTEBOT_API_KEY` | API key for VoteBot authentication | (required for VoteBot) |
+| `WEBFLOW_API_TOKEN` | Webflow CMS API token | (required for Webflow) |
+| `WEBFLOW_COLLECTION_ID` | Webflow bills collection ID | (required for Webflow) |
+| `WEBFLOW_ORGS_COLLECTION_ID` | Webflow orgs collection ID | (required for Webflow) |
 
 ### Option 1: AWS Secrets Manager (Production)
 
@@ -131,11 +183,14 @@ Credentials are stored in AWS Secrets Manager. The secret should contain:
   "sync_interval_minutes": 30,
   "votebot_service_url": "http://votebot-service:8000",
   "votebot_ws_url": "ws://votebot-service:8000/ws/chat",
-  "votebot_api_key": "your-votebot-api-key"
+  "votebot_api_key": "your-votebot-api-key",
+  "webflow_api_token": "your-webflow-api-token",
+  "webflow_bills_collection_id": "your-bills-collection-id",
+  "webflow_orgs_collection_id": "your-orgs-collection-id"
 }
 ```
 
-**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. Each org only needs its own `brevo_list_id`. Per-org values override root-level if specified.
+**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. Each org only needs its own `brevo_list_id`. Per-org values override root-level if specified. Webflow keys can also be set via environment variables instead of the config file.
 
 ### Option 2: Local Config File (Development)
 
@@ -147,6 +202,9 @@ Copy `config.local.example.json` to `config.local.json` and fill in credentials.
 
 ```bash
 pip install -r requirements.txt
+
+# Install the webflow_cms package (required for Webflow CMS endpoints)
+pip install -e /path/to/FillWebflowFields
 ```
 
 ### Development
@@ -200,6 +258,9 @@ pytest tests/ -v
 
 # Run only VoteBot tests
 pytest tests/test_votebot.py -v
+
+# Run only Webflow tests
+pytest tests/test_webflow.py -v
 ```
 
 ## API Documentation
@@ -400,3 +461,4 @@ sudo systemctl restart ddp-api
 
 - [VoteBot](https://github.com/VotingRightsBrigade/votebot) - RAG-powered chatbot for civic engagement
 - [Chat Widget](https://github.com/VotingRightsBrigade/chat-widget-poc) - Embeddable chat widget for VoteBot
+- [FillWebflowFields](https://github.com/VotingRightsBrigade/FillWebflowFields) - Webflow CMS management package (`webflow_cms`)
