@@ -938,34 +938,36 @@ def start_scheduler(app=None):
         replace_existing=True
     )
 
-    # Webflow CMS jobs
+    # Webflow CMS jobs — all run weekly on Monday at 3 AM
+    webflow_trigger = CronTrigger(day_of_week="mon", hour=3)
+
     _scheduler.add_job(
         run_webflow_fill_session_code,
-        trigger=IntervalTrigger(hours=6),
+        trigger=webflow_trigger,
         id="webflow_fill_session_code",
-        name="Fill session-code/bill-prefix/bill-number every 6 hours",
+        name="Fill session-code/bill-prefix/bill-number weekly (Mon 3 AM)",
         replace_existing=True
     )
 
     _scheduler.add_job(
         run_webflow_fill_map_url,
-        trigger=IntervalTrigger(hours=6),
+        trigger=webflow_trigger,
         id="webflow_fill_map_url",
-        name="Fill map-url and set visibility every 6 hours",
+        name="Fill map-url and set visibility weekly (Mon 3 AM)",
         replace_existing=True
     )
 
     _scheduler.add_job(
         run_webflow_bill_org_sync,
-        trigger=IntervalTrigger(hours=12),
+        trigger=webflow_trigger,
         id="webflow_bill_org_sync",
-        name="Sync bill-org references every 12 hours",
+        name="Sync bill-org references weekly (Mon 3 AM)",
         replace_existing=True
     )
 
     _scheduler.add_job(
         run_webflow_org_about_parse,
-        trigger=CronTrigger(day_of_week="mon", hour=3),
+        trigger=webflow_trigger,
         id="webflow_org_about_parse",
         name="Parse about-organization fields weekly (Mon 3 AM)",
         replace_existing=True
@@ -973,17 +975,17 @@ def start_scheduler(app=None):
 
     _scheduler.add_job(
         run_webflow_check_org_missing,
-        trigger=CronTrigger(day_of_week="mon", hour=4),
+        trigger=webflow_trigger,
         id="webflow_check_org_missing",
-        name="Check for missing org fields weekly (Mon 4 AM)",
+        name="Check for missing org fields weekly (Mon 3 AM)",
         replace_existing=True
     )
 
     _scheduler.add_job(
         run_webflow_find_duplicates,
-        trigger=CronTrigger(day_of_week="sun", hour=2),
+        trigger=webflow_trigger,
         id="webflow_find_duplicates",
-        name="Find duplicate bills weekly (Sun 2 AM)",
+        name="Find duplicate bills weekly (Mon 3 AM)",
         replace_existing=True
     )
 
@@ -991,8 +993,7 @@ def start_scheduler(app=None):
     logger.info(
         f"Scheduler started - user sync every {interval_minutes}min, "
         f"full-attribute sync monthly, "
-        f"Webflow CMS jobs: session-code/map-url 6h, bill-org 12h, "
-        f"about-parse Mon 3AM, missing-check Mon 4AM, duplicates Sun 2AM"
+        f"Webflow CMS jobs: all weekly Mon 3 AM"
     )
 
     # Run immediately on startup

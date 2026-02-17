@@ -127,14 +127,16 @@ The app includes a background scheduler with two sync jobs:
 
 These jobs run automatically if `WEBFLOW_API_TOKEN` is configured:
 
-| Job | Schedule | Description |
-|-----|----------|-------------|
-| Fill session-code | Every 6 hours | Parse open-states URLs to fill session-code, bill-prefix, and bill-number |
-| Fill map-url | Every 6 hours | Build map URLs from open-states URLs and set bill visibility |
-| Bill-org sync | Every 12 hours | Sync bill references into org support/oppose fields |
-| Org about-parse | Weekly (Mon 3 AM) | Parse about-organization text into structured sub-fields |
-| Org missing-fields check | Weekly (Mon 4 AM) | Check orgs for missing contact details, send Zapier alerts |
-| Find duplicates | Weekly (Sun 2 AM) | Detect duplicate and companion bills (report only, no auto-resolution) |
+All Webflow jobs run **weekly on Monday at 3 AM**:
+
+| Job | Description |
+|-----|-------------|
+| Fill session-code | Parse open-states URLs to fill session-code, bill-prefix, and bill-number |
+| Fill map-url | Build map URLs from open-states URLs and set bill visibility |
+| Bill-org sync | Sync bill references into org support/oppose fields |
+| Org about-parse | Parse about-organization text into structured sub-fields |
+| Org missing-fields check | Check orgs for missing contact details, send Zapier alerts |
+| Find duplicates | Detect duplicate and companion bills (report only, no auto-resolution) |
 
 ## Configuration
 
