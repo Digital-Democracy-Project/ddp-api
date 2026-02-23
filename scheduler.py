@@ -187,8 +187,13 @@ def fetch_voatz_users(ws_token: str, csrf_token: str, org_id: int) -> list[dict]
     return users
 
 
-def fetch_brevo_contacts(api_key: str, list_id: int) -> list[dict]:
-    """Fetch all contacts from a Brevo list."""
+def fetch_brevo_contacts(api_key: str, list_id: int) -> list[dict] | None:
+    """Fetch all contacts from a Brevo list.
+
+    Returns None if an error occurs mid-pagination, to prevent callers
+    from treating a partial fetch as a complete list (which causes false
+    diffs and mass re-imports).
+    """
     headers = {
         "Accept": "application/json",
         "api-key": api_key
@@ -209,7 +214,7 @@ def fetch_brevo_contacts(api_key: str, list_id: int) -> list[dict]:
             )
             if response.status_code != 200:
                 logger.error(f"Brevo fetch failed: {response.status_code} - {response.text}")
-                break
+                return None
 
             data = response.json()
             page = data.get("contacts", [])
@@ -223,7 +228,7 @@ def fetch_brevo_contacts(api_key: str, list_id: int) -> list[dict]:
 
         except Exception as e:
             logger.error(f"Brevo fetch error: {e}")
-            break
+            return None
 
     return contacts
 
@@ -501,6 +506,9 @@ def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | Non
 
     # Fetch Brevo contacts
     brevo_contacts = fetch_brevo_contacts(brevo_api_key, brevo_list_id)
+    if brevo_contacts is None:
+        logger.error(f"Skipping org {org_name}: Brevo fetch failed (partial data unreliable for diff)")
+        return None
     logger.info(f"Fetched {len(brevo_contacts)} contacts from Brevo for {org_name}")
 
     # Extract emails from Brevo (for diff matching)

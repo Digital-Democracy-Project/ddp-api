@@ -19,5 +19,9 @@ venv/
 .vscode/
 *.swp
 
+# Logs
+*.log
+*.err
+
 # OS
 .DS_Store

@@ -114,6 +114,7 @@ The app includes a background scheduler with two sync jobs:
 2. Automatically adds new users to Brevo (with overseas detection and shared-phone deduplication)
 3. Removes departed users from Brevo lists (contacts whose email is not in Voatz)
 4. Pushes alerts to a Zapier webhook when changes are detected
+5. If the Brevo contact fetch fails mid-pagination (502/503/timeout), that org's sync is skipped entirely to prevent false diffs from partial data
 
 **Note:** Brevo treats `sms` and `WHATSAPP` as unique keys. When a contact in one org shares a phone number with a contact in another org (different emails, same phone), only the first org to sync claims the phone for `sms`/`WHATSAPP`. Organizations are synced with Federal last so that state-specific lists claim shared phones first (SMS campaigns are state-focused).
 
