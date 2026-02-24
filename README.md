@@ -116,7 +116,9 @@ The app includes a background scheduler with two sync jobs:
 4. Pushes alerts to a Zapier webhook when changes are detected
 5. If the Brevo contact fetch fails mid-pagination (502/503/timeout), that org's sync is skipped entirely to prevent false diffs from partial data
 
-**Note:** Brevo treats `sms` and `WHATSAPP` as unique keys. When a contact in one org shares a phone number with a contact in another org (different emails, same phone), only the first org to sync claims the phone for `sms`/`WHATSAPP`. Organizations are synced with Federal last so that state-specific lists claim shared phones first (SMS campaigns are state-focused).
+**Phone conflict resolution:** Brevo treats `sms` and `WHATSAPP` as globally unique keys. The sync handles two conflict scenarios:
+- **Cross-org conflicts** (same phone, different emails across Voatz orgs): Organizations are synced with Federal last so that state-specific lists claim shared phones first (SMS campaigns are state-focused). Only the first org to sync claims the phone for `sms`/`WHATSAPP`.
+- **Orphan conflicts** (a Brevo contact without an email already owns a phone that a Voatz user now registers with): The sync automatically resolves this by clearing the phone from the existing contact (or deleting email-less orphans), then assigning it to the Voatz user. This prevents phantom diffs where the same user is re-imported every cycle because Brevo silently rejects the import.
 
 ### Full-Attribute Sync (1st of each month at 2 AM)
 1. Fetches all users from Voatz for each organization
@@ -261,6 +263,9 @@ pytest tests/ -v
 
 # Run only VoteBot tests
 pytest tests/test_votebot.py -v
+
+# Run only phone conflict tests
+pytest tests/test_phone_conflict.py -v
 
 # Run only Webflow tests
 pytest tests/test_webflow.py -v

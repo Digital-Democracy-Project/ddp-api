@@ -271,7 +271,8 @@ def flatten_voatz_user(user: dict) -> dict:
 
 
 def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict],
-                          claimed_phones: dict | None = None) -> tuple[int, int, int]:
+                          claimed_phones: dict | None = None,
+                          brevo_phones: dict | None = None) -> tuple[int, int, int]:
     """
     Add contacts to Brevo list.
 
@@ -281,6 +282,10 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict],
     contact "owns" each phone across orgs. Brevo treats sms and WHATSAPP as
     unique keys, so only the first contact to claim a phone gets those fields.
 
+    brevo_phones is a dict mapping formatted phone → email (or None for
+    email-less contacts). It tracks which Brevo contact currently owns each
+    phone, enabling conflict resolution before import.
+
     Returns tuple of (successful_count, failed_count, overseas_count).
     """
     if not users:
@@ -288,6 +293,8 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict],
 
     if claimed_phones is None:
         claimed_phones = {}
+    if brevo_phones is None:
+        brevo_phones = {}
 
     headers = {
         "Accept": "application/json",
@@ -356,14 +363,11 @@ def add_contacts_to_brevo(api_key: str, list_id: int, users: list[dict],
         }
 
         # Add phone/SMS if available. Brevo treats both `sms` and
-        # `WHATSAPP` as unique keys — only set them if this contact owns
-        # the phone (first to claim it) or already owns it (same email).
+        # `WHATSAPP` as unique keys — resolve conflicts before assigning.
         if phone:
-            owner = claimed_phones.get(phone)
-            if owner is None or owner == email.lower():
+            if resolve_phone_ownership(api_key, phone, email, claimed_phones, brevo_phones):
                 contact["sms"] = phone
                 contact["attributes"]["WHATSAPP"] = phone
-                claimed_phones[phone] = email.lower()
 
         contacts.append(contact)
 
@@ -449,6 +453,153 @@ def remove_contacts_from_brevo(api_key: str, list_id: int, emails: list[str]) ->
     return successful, failed
 
 
+def clear_phone_from_brevo_contact(api_key: str, phone: str) -> bool:
+    """
+    Clear sms/WHATSAPP from an existing Brevo contact that owns the given phone.
+
+    If the owning contact has a different email, clear the phone fields via PUT.
+    If the owning contact has no email (orphan), delete it entirely.
+    Returns True if the phone is now available, False on failure.
+    """
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "api-key": api_key
+    }
+
+    # Look up who currently owns this phone in Brevo
+    lookup_url = f"https://api.brevo.com/v3/contacts/{phone}"
+    try:
+        resp = requests.get(
+            lookup_url, headers=headers,
+            params={"identifierType": "phone_id"},
+            timeout=30
+        )
+        time.sleep(0.1)
+    except Exception as e:
+        logger.error(f"Phone lookup failed for {phone}: {e}")
+        return False
+
+    if resp.status_code == 404:
+        return True  # No conflict
+
+    if resp.status_code != 200:
+        logger.error(f"Phone lookup unexpected status for {phone}: {resp.status_code} - {resp.text}")
+        return False
+
+    owner = resp.json()
+    owner_email = owner.get("email")
+
+    if owner_email:
+        # Contact has an email — clear sms and WHATSAPP via PUT
+        put_url = f"https://api.brevo.com/v3/contacts/{owner_email}"
+        try:
+            put_resp = requests.put(
+                put_url, headers=headers,
+                json={"attributes": {"WHATSAPP": ""}, "sms": ""},
+                timeout=30
+            )
+            time.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Failed to clear phone from {owner_email}: {e}")
+            return False
+
+        if 200 <= put_resp.status_code < 300:
+            logger.info(f"Resolved phone conflict: {phone} cleared from {owner_email}")
+            return True
+        else:
+            logger.error(f"Failed to clear phone from {owner_email}: {put_resp.status_code} - {put_resp.text}")
+            return False
+    else:
+        # Orphan contact with no email — delete it
+        del_url = f"https://api.brevo.com/v3/contacts/{phone}"
+        try:
+            del_resp = requests.delete(
+                del_url, headers=headers,
+                params={"identifierType": "phone_id"},
+                timeout=30
+            )
+            time.sleep(0.1)
+        except Exception as e:
+            logger.error(f"Failed to delete orphan contact with phone {phone}: {e}")
+            return False
+
+        if 200 <= del_resp.status_code < 300:
+            logger.info(f"Resolved phone conflict: {phone} transferred from (email-less contact) — orphan deleted")
+            return True
+        else:
+            logger.error(f"Failed to delete orphan contact with phone {phone}: {del_resp.status_code} - {del_resp.text}")
+            return False
+
+
+def resolve_phone_ownership(api_key: str, phone: str, new_email: str,
+                            claimed_phones: dict, brevo_phones: dict) -> bool:
+    """
+    Determine whether new_email can claim the given phone number.
+
+    Checks cross-org claims (claimed_phones), the Brevo phone index
+    (brevo_phones), and falls back to a live Brevo API lookup.
+    Returns True if the phone can be assigned to new_email.
+    """
+    new_email_lower = new_email.lower()
+
+    # 1. Cross-org claim by a different email — respect it
+    cross_owner = claimed_phones.get(phone)
+    if cross_owner is not None and cross_owner != new_email_lower:
+        return False
+
+    # 2. Check brevo_phones index
+    if phone in brevo_phones:
+        brevo_owner = brevo_phones[phone]
+
+        if brevo_owner == new_email_lower:
+            # Same email already owns it — no conflict
+            claimed_phones[phone] = new_email_lower
+            return True
+
+        if brevo_owner is not None:
+            # Different email owns it in Brevo — clear it
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "api-key": api_key
+            }
+            put_url = f"https://api.brevo.com/v3/contacts/{brevo_owner}"
+            try:
+                put_resp = requests.put(
+                    put_url, headers=headers,
+                    json={"attributes": {"WHATSAPP": ""}, "sms": ""},
+                    timeout=30
+                )
+                time.sleep(0.1)
+            except Exception as e:
+                logger.error(f"Failed to clear phone {phone} from {brevo_owner}: {e}")
+                return False
+
+            if 200 <= put_resp.status_code < 300:
+                logger.info(f"Resolved phone conflict: {phone} cleared from {brevo_owner}")
+                claimed_phones[phone] = new_email_lower
+                brevo_phones[phone] = new_email_lower
+                return True
+            else:
+                logger.error(f"Failed to clear phone {phone} from {brevo_owner}: {put_resp.status_code}")
+                return False
+        else:
+            # Email-less orphan owns it — delete the orphan
+            if clear_phone_from_brevo_contact(api_key, phone):
+                claimed_phones[phone] = new_email_lower
+                brevo_phones[phone] = new_email_lower
+                return True
+            return False
+
+    # 3. Phone not in brevo_phones — live lookup
+    if clear_phone_from_brevo_contact(api_key, phone):
+        claimed_phones[phone] = new_email_lower
+        brevo_phones[phone] = new_email_lower
+        return True
+    return False
+
+
 def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | None:
     """
     Sync users for a single organization.
@@ -514,23 +665,27 @@ def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | Non
     # Extract emails from Brevo (for diff matching)
     if claimed_phones is None:
         claimed_phones = {}
+    brevo_phones = {}
     brevo_emails = set()
     brevo_blacklisted_count = 0
     brevo_no_email_count = 0
     for contact in brevo_contacts:
         voter_id = contact.get("attributes", {}).get("VOTER_ID")
         email = contact.get("email")
+        whatsapp = contact.get("attributes", {}).get("WHATSAPP")
         if not email:
             brevo_no_email_count += 1
+            # Track email-less contacts' phones so we can resolve conflicts
+            if whatsapp:
+                brevo_phones[str(whatsapp)] = None
         elif voter_id and str(voter_id).strip() in blacklist:
             brevo_blacklisted_count += 1
         else:
             brevo_emails.add(email.lower())
-            # Seed claimed_phones from existing Brevo contacts so we don't
-            # conflict with phones already assigned to contacts on other lists
-            whatsapp = contact.get("attributes", {}).get("WHATSAPP")
+            # Seed claimed_phones and brevo_phones from existing Brevo contacts
             if whatsapp:
                 claimed_phones[str(whatsapp)] = email.lower()
+                brevo_phones[str(whatsapp)] = email.lower()
 
     # Diagnostic logging
     logger.info(f"  Voatz breakdown: {len(voatz_emails)} valid, {voatz_blacklisted_count} blacklisted, {voatz_no_customer_id_count} no customer ID, {voatz_invalid_email_count} invalid email")
@@ -553,7 +708,9 @@ def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | Non
     removed_success, removed_failed = 0, 0
 
     if users_to_add:
-        added_success, added_failed, overseas_count = add_contacts_to_brevo(brevo_api_key, brevo_list_id, users_to_add, claimed_phones)
+        added_success, added_failed, overseas_count = add_contacts_to_brevo(
+            brevo_api_key, brevo_list_id, users_to_add, claimed_phones, brevo_phones
+        )
         logger.info(f"Org {org_name}: Added {added_success} contacts ({added_failed} failed, {overseas_count} overseas)")
 
     if emails_to_remove:
@@ -633,9 +790,22 @@ def full_sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict 
         logger.info(f"No users to sync for {org_name}")
         return None
 
+    # Fetch Brevo contacts to build phone index (avoids per-user API lookups)
+    brevo_phones = {}
+    brevo_contacts = fetch_brevo_contacts(brevo_api_key, brevo_list_id)
+    if brevo_contacts is not None:
+        for contact in brevo_contacts:
+            email = contact.get("email")
+            whatsapp = contact.get("attributes", {}).get("WHATSAPP")
+            if whatsapp:
+                brevo_phones[str(whatsapp)] = email.lower() if email else None
+        logger.info(f"  Built phone index from {len(brevo_contacts)} Brevo contacts ({len(brevo_phones)} phones)")
+    else:
+        logger.warning(f"  Brevo fetch failed for {org_name} — phone conflicts will use live lookups")
+
     # Push all users to Brevo (updates existing contacts matched by email)
     added_success, added_failed, overseas_count = add_contacts_to_brevo(
-        brevo_api_key, brevo_list_id, users_to_sync, claimed_phones
+        brevo_api_key, brevo_list_id, users_to_sync, claimed_phones, brevo_phones
     )
     logger.info(f"Org {org_name}: Synced {added_success} contacts ({added_failed} failed, {overseas_count} overseas)")
 
