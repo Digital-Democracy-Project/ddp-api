@@ -61,6 +61,11 @@ DDP-API/
 | `/votebot/chat` | POST | Bearer | Proxy chat requests to VoteBot |
 | `/votebot/chat/stream` | POST | Bearer | Proxy streaming chat requests (SSE) |
 | `/votebot/feedback` | POST | Bearer | Proxy feedback submissions |
+| `/votebot/sync/bill` | POST | Bearer | Proxy single bill sync |
+| `/votebot/sync/legislator` | POST | Bearer | Proxy single legislator sync |
+| `/votebot/sync/organization` | POST | Bearer | Proxy single organization sync |
+| `/votebot/sync/unified` | POST | Bearer | Proxy unified sync (single or batch mode, returns `task_id` for batch) |
+| `/votebot/sync/unified/status/{task_id}` | GET | Bearer | Poll background sync task status and results |
 | `/votebot/ws` | WebSocket | — | Bidirectional WebSocket proxy to VoteBot |
 
 ### Webflow CMS Endpoints
