@@ -331,6 +331,42 @@ async def votebot_sync_unified(
             )
 
 
+@router.get("/sync/unified/status/{task_id}")
+async def votebot_sync_status(
+    task_id: str,
+    token: str = Depends(bearer_auth),
+):
+    """
+    Proxy sync task status requests to VoteBot service.
+
+    Returns the current status and results of a background sync operation.
+    """
+    config = get_votebot_config()
+
+    async with httpx.AsyncClient(
+        base_url=config["service_url"],
+        headers={"Authorization": f"Bearer {config['api_key']}"},
+        timeout=30.0,
+    ) as client:
+        try:
+            response = await client.get(f"/votebot/v1/sync/unified/status/{task_id}")
+
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text,
+                )
+
+            return response.json()
+
+        except httpx.RequestError as e:
+            logger.error(f"VoteBot sync status request failed: {e}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"VoteBot service unavailable: {e}",
+            )
+
+
 @router.websocket("/ws")
 async def votebot_websocket(
     websocket: WebSocket,
