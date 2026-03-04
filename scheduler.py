@@ -147,8 +147,11 @@ def get_voatz_tokens(email: str, password: str, org_id: int) -> tuple[str, str] 
     return None
 
 
-def fetch_voatz_users(ws_token: str, csrf_token: str, org_id: int) -> list[dict]:
-    """Fetch all users from Voatz for an organization."""
+def fetch_voatz_users(ws_token: str, csrf_token: str, org_id: int) -> list[dict] | None:
+    """Fetch all users from Voatz for an organization.
+
+    Returns None if an error occurs, to prevent callers from treating
+    an empty result as 'no users exist' (which causes mass removals)."""
     headers = {
         'Accept-Encoding': 'identity',
         'Content-Type': 'application/json',
@@ -169,8 +172,8 @@ def fetch_voatz_users(ws_token: str, csrf_token: str, org_id: int) -> list[dict]
         try:
             response = requests.post(USERS_URL, headers=headers, json=payload, timeout=60)
             if response.status_code != 200:
-                logger.error(f"Voatz users fetch failed: {response.status_code}")
-                break
+                logger.error(f"Voatz users fetch failed: {response.status_code} - {response.text}")
+                return None
 
             data = response.json()
             result = data.get("result", [])
@@ -182,7 +185,7 @@ def fetch_voatz_users(ws_token: str, csrf_token: str, org_id: int) -> list[dict]
 
         except Exception as e:
             logger.error(f"Voatz users fetch error: {e}")
-            break
+            return None
 
     return users
 
@@ -630,6 +633,9 @@ def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | Non
 
     # Fetch Voatz users
     voatz_users = fetch_voatz_users(ws_token, csrf_token, org_id)
+    if voatz_users is None:
+        logger.error(f"Skipping org {org_name}: Voatz fetch failed (empty result unreliable for diff)")
+        return None
     logger.info(f"Fetched {len(voatz_users)} users from Voatz for {org_name}")
 
     # Extract emails and details from Voatz (keyed by email for diff)
@@ -692,6 +698,10 @@ def sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict | Non
     logger.info(f"  Brevo breakdown: {len(brevo_emails)} valid, {brevo_blacklisted_count} blacklisted, {brevo_no_email_count} no email")
 
     # Calculate differences (by email)
+    if len(voatz_emails) == 0 and len(brevo_emails) > 0:
+        logger.warning(f"Skipping org {org_name}: Voatz returned 0 valid emails but Brevo has {len(brevo_emails)} — refusing to remove all contacts")
+        return None
+
     added_emails = voatz_emails - brevo_emails
     removed_emails = brevo_emails - voatz_emails
 
@@ -765,6 +775,9 @@ def full_sync_org(org_config: dict, claimed_phones: dict | None = None) -> dict 
 
     # Fetch all Voatz users
     voatz_users = fetch_voatz_users(ws_token, csrf_token, org_id)
+    if voatz_users is None:
+        logger.error(f"Skipping full sync for org {org_name}: Voatz fetch failed")
+        return None
     logger.info(f"Fetched {len(voatz_users)} users from Voatz for {org_name}")
 
     # Flatten and filter
