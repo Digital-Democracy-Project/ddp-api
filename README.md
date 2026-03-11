@@ -138,7 +138,10 @@ All Webflow endpoints require Bearer token authentication.
 | `VOTEBOT_SERVICE_URL` | VoteBot HTTP service URL | `http://localhost:8000` |
 | `VOTEBOT_WS_URL` | VoteBot WebSocket URL | `ws://localhost:8000/ws/chat` |
 | `VOTEBOT_API_KEY` | API key for VoteBot authentication | (required for VoteBot) |
+| `DDP_SYNC_SERVICE_URL` | DDP-Sync HTTP service URL | `http://localhost:8001` |
 | `DDP_SYNC_API_KEY` | API key for DDP-Sync authentication (fallback) | (in Secrets Manager) |
+| `VOATZ_API_BASE_URL` | Voatz API base URL | `https://api.voatz.com` |
+| `VOATZ_API_ORIGIN` | Origin header for Voatz API requests | `https://api.voatz.com` |
 | `WEBFLOW_API_TOKEN` | Webflow CMS API token | (required for Webflow) |
 | `WEBFLOW_COLLECTION_ID` | Webflow bills collection ID | (required for Webflow) |
 | `WEBFLOW_ORGS_COLLECTION_ID` | Webflow orgs collection ID | (required for Webflow) |
@@ -438,6 +441,6 @@ sudo systemctl restart ddp-api
 ## Related Repositories
 
 - [DDP-Sync](https://github.com/Digital-Democracy-Project/ddp-sync) - Unified data pipeline service (scheduled sync jobs)
-- [VoteBot](https://github.com/VotingRightsBrigade/votebot) - RAG-powered chatbot for civic engagement
+- [VoteBot](https://github.com/Digital-Democracy-Project/votebot) - RAG-powered chatbot for civic engagement
 - [Chat Widget](https://github.com/VotingRightsBrigade/chat-widget-poc) - Embeddable chat widget for VoteBot
 - [FillWebflowFields](https://github.com/VotingRightsBrigade/FillWebflowFields) - Webflow CMS management package (`webflow_cms`)
