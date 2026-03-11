@@ -45,7 +45,10 @@ async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
             response = await client.request(
                 method=request.method,
                 url=f"/ddp-sync/v1/{path}",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": request.headers.get("content-type", "application/json"),
+                },
                 content=await request.body(),
                 params=request.query_params,
             )
