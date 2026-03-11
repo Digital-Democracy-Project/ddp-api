@@ -1,17 +1,27 @@
 # DDP-API
 
-Middleware proxy API for the Digital Democracy Project. This FastAPI application routes API requests through the DDP EC2 instance, which has a whitelisted IP address with Voatz, and provides a proxy layer to the VoteBot service.
+Auth gateway and API proxy for the Digital Democracy Project. This FastAPI application routes requests to internal services (VoteBot, DDP-Sync) and external APIs (Voatz, Brevo, Webflow CMS). DDP-API has no scheduler and no background jobs — it is a stateless proxy (87-line `main.py`).
+
+## Architecture
+
+```
+nginx (:80/443)
+  └── DDP-API (:5000) — Auth gateway + API proxy
+        ├── VoteBot (:8000) — Chat/RAG
+        └── DDP-Sync (:8001) — Data pipelines
+```
 
 ## Purpose
 
-This middleware handles:
+This proxy handles:
+- **VoteBot Chat Proxy** - Proxy chat requests to the VoteBot RAG service (HTTP, SSE streaming, WebSocket)
+- **DDP-Sync Proxy** - Catch-all proxy forwarding `/sync/*` and `/trigger/*` to DDP-Sync (new endpoints in DDP-Sync are automatically available — no DDP-API code changes needed)
 - **Voatz API Authentication** - Proxy authentication to obtain WS and CSRF tokens
-- **User Synchronization** - Compare and sync users between Voatz and Brevo CRM
 - **Event Management** - List and create events via Voatz API
 - **Brevo Segment Updates** - Bulk update contact attributes in Brevo segments
-- **Scheduled Sync** - Automatically check for user updates and push to Zapier
-- **VoteBot Proxy** - Proxy chat requests to the VoteBot RAG service (HTTP and WebSocket)
 - **Webflow CMS Management** - Fill, sync, check, and manage Webflow CMS items via the [`webflow_cms`](https://github.com/VotingRightsBrigade/FillWebflowFields) package
+
+> **Note:** Scheduled sync jobs (Voatz→Brevo, Webflow CMS batch, bill/legislator/org sync) have moved to [DDP-Sync](https://github.com/Digital-Democracy-Project/ddp-sync).
 
 ## Project Structure
 
@@ -19,21 +29,20 @@ This middleware handles:
 DDP-API/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI app entry point
+│   ├── main.py              # FastAPI app entry point (87 lines)
 │   ├── middleware/
 │   │   └── auth.py          # Bearer token authentication
 │   ├── routes/
 │   │   ├── voatz.py         # Voatz API endpoints
 │   │   ├── brevo.py         # Brevo API endpoints
-│   │   ├── sync.py          # Sync trigger endpoint
-│   │   ├── votebot.py       # VoteBot proxy endpoints
+│   │   ├── ddp_sync_proxy.py # Catch-all proxy for DDP-Sync (:8001)
+│   │   ├── votebot.py       # VoteBot chat proxy endpoints
 │   │   └── webflow.py       # Webflow CMS management endpoints
 │   └── schemas/
 │       ├── common.py        # Pydantic request/response models
 │       └── webflow.py       # Webflow request/response models
 ├── config.py                # Configuration loader (AWS/local)
-├── scheduler.py             # Background sync & Webflow CMS jobs
-├── middleware.py            # Legacy Flask app (deprecated)
+├── middleware.py            # Legacy Flask app (deprecated, not imported)
 ├── requirements.txt
 ├── .env.example
 └── config.local.example.json
@@ -51,22 +60,28 @@ DDP-API/
 | `/get_events` | POST | — | List events for an organization |
 | `/create_event` | POST | — | Create a new event |
 | `/update_segment_attribute` | POST | Bearer | Bulk update attributes in a Brevo segment |
-| `/trigger_sync` | POST | Bearer | Manually trigger the scheduled sync job |
-| `/trigger_full_sync` | POST | Bearer | Manually trigger a full-attribute sync (re-imports all users) |
 
-### VoteBot Proxy Endpoints
+### VoteBot Chat Proxy Endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/votebot/chat` | POST | Bearer | Proxy chat requests to VoteBot |
 | `/votebot/chat/stream` | POST | Bearer | Proxy streaming chat requests (SSE) |
 | `/votebot/feedback` | POST | Bearer | Proxy feedback submissions |
-| `/votebot/sync/bill` | POST | Bearer | Proxy single bill sync |
-| `/votebot/sync/legislator` | POST | Bearer | Proxy single legislator sync |
-| `/votebot/sync/organization` | POST | Bearer | Proxy single organization sync |
-| `/votebot/sync/unified` | POST | Bearer | Proxy unified sync (single or batch mode, returns `task_id` for batch) |
-| `/votebot/sync/unified/status/{task_id}` | GET | Bearer | Poll background sync task status and results |
 | `/votebot/ws` | WebSocket | — | Bidirectional WebSocket proxy to VoteBot |
+
+### DDP-Sync Proxy Endpoints (catch-all)
+
+These routes forward to DDP-Sync (:8001) automatically. New DDP-Sync endpoints are available without DDP-API code changes.
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/votebot/sync/{path}` | GET/POST | Bearer | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
+| `/votebot/trigger/{path}` | GET/POST | Bearer | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
+| `/sync/{path}` | GET/POST | Bearer | Forward to DDP-Sync (root-level alias) |
+| `/trigger/{path}` | GET/POST | Bearer | Forward to DDP-Sync (root-level alias) |
+
+Common paths: `/votebot/sync/unified` (trigger sync), `/votebot/sync/unified/status/{id}` (poll status), `/votebot/trigger/user-sync` (Voatz→Brevo sync).
 
 ### Webflow CMS Endpoints
 
@@ -110,42 +125,6 @@ All Webflow endpoints require Bearer token authentication.
 | `/docs` | GET | OpenAPI documentation (Swagger UI) |
 | `/redoc` | GET | OpenAPI documentation (ReDoc) |
 
-## Scheduled User Sync
-
-The app includes a background scheduler with two sync jobs:
-
-### Regular Sync (every 30 min)
-1. Checks all configured organizations for user changes (Voatz vs Brevo, matched by email address)
-2. Automatically adds new users to Brevo (with overseas detection and shared-phone deduplication)
-3. Removes departed users from Brevo lists (contacts whose email is not in Voatz)
-4. Pushes alerts to a Zapier webhook when changes are detected
-5. If the Brevo contact fetch fails mid-pagination (502/503/timeout), that org's sync is skipped entirely to prevent false diffs from partial data
-
-**Phone conflict resolution:** Brevo treats `sms` and `WHATSAPP` as globally unique keys. The sync handles two conflict scenarios:
-- **Cross-org conflicts** (same phone, different emails across Voatz orgs): Organizations are synced with Federal last so that state-specific lists claim shared phones first (SMS campaigns are state-focused). Only the first org to sync claims the phone for `sms`/`WHATSAPP`.
-- **Orphan conflicts** (a Brevo contact without an email already owns a phone that a Voatz user now registers with): The sync automatically resolves this by clearing the phone from the existing contact (or deleting email-less orphans), then assigning it to the Voatz user. This prevents phantom diffs where the same user is re-imported every cycle because Brevo silently rejects the import.
-
-### Full-Attribute Sync (1st of each month at 2 AM)
-1. Fetches all users from Voatz for each organization
-2. Re-imports all valid users to Brevo via `updateExistingContacts`, overwriting any changed attributes (name, phone, address, etc.)
-3. Pushes a Zapier alert with `alert_type: "full_attribute_sync_complete"`
-4. Can be triggered manually via `POST /trigger_full_sync`
-
-### Webflow CMS Jobs
-
-These jobs run automatically if `WEBFLOW_API_TOKEN` is configured:
-
-All Webflow jobs run **weekly on Monday at 3 AM**:
-
-| Job | Description |
-|-----|-------------|
-| Fill session-code | Parse open-states URLs to fill session-code, bill-prefix, and bill-number |
-| Fill map-url | Build map URLs from open-states URLs and set bill visibility |
-| Bill-org sync | Sync bill references into org support/oppose fields |
-| Org about-parse | Parse about-organization text into structured sub-fields |
-| Org missing-fields check | Check orgs for missing contact details, send Zapier alerts |
-| Find duplicates | Detect duplicate and companion bills (report only, no auto-resolution) |
-
 ## Configuration
 
 ### Environment Variables
@@ -156,11 +135,10 @@ All Webflow jobs run **weekly on Monday at 3 AM**:
 | `AWS_SECRET_NAME` | Secrets Manager secret name | `ddp-api/org-credentials` |
 | `AWS_REGION` | AWS region | `us-east-1` |
 | `LOCAL_CONFIG_PATH` | Path to local config file | `config.local.json` |
-| `SYNC_INTERVAL_MINUTES` | How often to check for updates | `30` |
-| `BREVO_RATE_LIMIT_RPH` | Brevo API rate limit (requests/hour) | `36000` |
 | `VOTEBOT_SERVICE_URL` | VoteBot HTTP service URL | `http://localhost:8000` |
 | `VOTEBOT_WS_URL` | VoteBot WebSocket URL | `ws://localhost:8000/ws/chat` |
 | `VOTEBOT_API_KEY` | API key for VoteBot authentication | (required for VoteBot) |
+| `DDP_SYNC_API_KEY` | API key for DDP-Sync authentication (fallback) | (in Secrets Manager) |
 | `WEBFLOW_API_TOKEN` | Webflow CMS API token | (required for Webflow) |
 | `WEBFLOW_COLLECTION_ID` | Webflow bills collection ID | (required for Webflow) |
 | `WEBFLOW_ORGS_COLLECTION_ID` | Webflow orgs collection ID | (required for Webflow) |
@@ -266,11 +244,8 @@ Run the test suite:
 # Run all tests
 pytest tests/ -v
 
-# Run only VoteBot tests
+# Run only VoteBot proxy tests
 pytest tests/test_votebot.py -v
-
-# Run only phone conflict tests
-pytest tests/test_phone_conflict.py -v
 
 # Run only Webflow tests
 pytest tests/test_webflow.py -v
@@ -289,7 +264,7 @@ Once running, interactive API documentation is available at:
 ```bash
 aws secretsmanager create-secret \
   --name ddp-api/org-credentials \
-  --description "DDP-API organization credentials for Voatz/Brevo sync" \
+  --description "DDP-API organization credentials" \
   --secret-string '{
     "brevo_api_key": "xkeysib-...",
     "blacklist": [],
@@ -303,7 +278,7 @@ aws secretsmanager create-secret \
       }
     ],
     "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
-    "sync_interval_minutes": 30
+    "ddp_sync_api_key": "your-ddp-sync-api-key"
   }'
 ```
 
@@ -459,19 +434,18 @@ curl https://your-domain.com/health
 
 ### Rollback (if needed)
 
-If issues arise, revert to the legacy Flask app:
+If issues arise, revert to a previous commit:
 
 ```bash
-# Edit systemd service
-sudo nano /etc/systemd/system/ddp-api.service
-# Change ExecStart to: /path/to/venv/bin/python middleware.py
-
-sudo systemctl daemon-reload
+cd /path/to/DDP-API
+git log --oneline -5     # Find the last known-good commit
+git checkout <commit>
 sudo systemctl restart ddp-api
 ```
 
 ## Related Repositories
 
+- [DDP-Sync](https://github.com/Digital-Democracy-Project/ddp-sync) - Unified data pipeline service (scheduled sync jobs)
 - [VoteBot](https://github.com/VotingRightsBrigade/votebot) - RAG-powered chatbot for civic engagement
 - [Chat Widget](https://github.com/VotingRightsBrigade/chat-widget-poc) - Embeddable chat widget for VoteBot
 - [FillWebflowFields](https://github.com/VotingRightsBrigade/FillWebflowFields) - Webflow CMS management package (`webflow_cms`)
