@@ -17,44 +17,35 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _get_ddp_sync_config() -> dict:
-    """Get DDP-Sync service URL and API key from config."""
+DDP_SYNC_SERVICE_URL = "http://localhost:8001"
+
+
+def _get_ddp_sync_api_key() -> str:
+    """Get DDP-Sync API key from Secrets Manager or environment."""
     try:
         from config import get_config
         config = get_config()
-        return {
-            "service_url": config.get(
-                "ddp_sync_service_url",
-                os.getenv("DDP_SYNC_SERVICE_URL", "http://localhost:8001"),
-            ),
-            "api_key": config.get(
-                "ddp_sync_api_key",
-                os.getenv("DDP_SYNC_API_KEY", ""),
-            ),
-        }
+        return config.get("ddp_sync_api_key", os.getenv("DDP_SYNC_API_KEY", ""))
     except Exception:
-        return {
-            "service_url": os.getenv("DDP_SYNC_SERVICE_URL", "http://localhost:8001"),
-            "api_key": os.getenv("DDP_SYNC_API_KEY", ""),
-        }
+        return os.getenv("DDP_SYNC_API_KEY", "")
 
 
 async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
     """Forward a request to ddp-sync and return the response."""
-    config = _get_ddp_sync_config()
+    api_key = _get_ddp_sync_api_key()
 
     # POST sync requests can be long-running (bill batch sync)
     timeout = 300.0 if request.method == "POST" else 30.0
 
     try:
         async with httpx.AsyncClient(
-            base_url=config["service_url"],
+            base_url=DDP_SYNC_SERVICE_URL,
             timeout=timeout,
         ) as client:
             response = await client.request(
                 method=request.method,
                 url=f"/ddp-sync/v1/{path}",
-                headers={"Authorization": f"Bearer {config['api_key']}"},
+                headers={"Authorization": f"Bearer {api_key}"},
                 content=await request.body(),
                 params=request.query_params,
             )
