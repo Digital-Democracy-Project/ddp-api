@@ -55,12 +55,12 @@ REQUEST_DELAY = 3600.0 / RATE_LIMIT_RPH
 
 app = Flask(__name__)
 
-LOGIN_URL = "https://vapi-vrb.nimsim.com/voatz/organizations/users/login"
+LOGIN_URL = "https://api.voatz.com/voatz/organizations/users/login"
 
 LOGIN_HEADERS = {
     'Accept-Encoding': 'identity',
     'Content-Type': 'application/json',
-    'Origin': 'http://vapi-vrb.nimsim.com'
+    'Origin': 'https://api.voatz.com'
 }
 
 @app.route('/get_tokens', methods=['POST'])
@@ -125,11 +125,11 @@ def get_users():
     if not organization_id or not ws_token or not csrf_token:
         return jsonify({"status": "error", "message": "Missing required fields."}), 400
 
-    users_list_url = "https://vapi-vrb.nimsim.com/voatz/customers/delegate/signups/byorg"
+    users_list_url = "https://api.voatz.com/voatz/customers/delegate/signups/byorg"
     headers = {
         'Accept-Encoding': 'identity',
         'Content-Type': 'application/json',
-        'Origin': 'http://vapi-vrb.nimsim.com',
+        'Origin': 'https://api.voatz.com',
         'WS': ws_token,
         'Csrf-Token': csrf_token,
         'Cookie': f"WS={ws_token}; Csrf-Token={csrf_token}"
@@ -258,11 +258,11 @@ def compare_users():
         blacklist = set()
 
     # Fetch voter list from Voatz
-    users_list_url = "https://vapi-vrb.nimsim.com/voatz/customers/delegate/signups/byorg"
+    users_list_url = "https://api.voatz.com/voatz/customers/delegate/signups/byorg"
     headers_voatz = {
         'Accept-Encoding': 'identity',
         'Content-Type': 'application/json',
-        'Origin': 'http://vapi-vrb.nimsim.com',
+        'Origin': 'https://api.voatz.com',
         'WS': ws_token,
         'Csrf-Token': csrf_token,
         'Cookie': f"WS={ws_token}; Csrf-Token={csrf_token}"
@@ -402,11 +402,11 @@ def get_events():
     if not organization_id or not ws_token or not csrf_token:
         return jsonify({"status": "error", "message": "Missing required fields: organizationId, WS, or Csrf-Token"}), 400
 
-    url = "https://vapi-vrb.nimsim.com/voatz/events/listbyorganization/chrono"
+    url = "https://api.voatz.com/voatz/events/listbyorganization/chrono"
     headers = {
         'Accept-Encoding': 'identity',
         'Content-Type': 'application/json',
-        'Origin': 'http://vapi-vrb.nimsim.com',
+        'Origin': 'https://api.voatz.com',
         'WS': ws_token,
         'Csrf-Token': csrf_token,
         'Cookie': f"WS={ws_token}; Csrf-Token={csrf_token}"
@@ -454,11 +454,11 @@ def create_event():
     if not organization_id or not ws_token or not csrf_token:
         return jsonify({"status": "error", "message": "Missing required fields: organizationId, WS, or Csrf-Token"}), 400
 
-    url = "https://vapi-vrb.nimsim.com/voatz/events/create"
+    url = "https://api.voatz.com/voatz/events/create"
     headers = {
         'Accept-Encoding': 'identity',
         'Content-Type': 'application/json',
-        'Origin': 'http://vapi-vrb.nimsim.com',
+        'Origin': 'https://api.voatz.com',
         'WS': ws_token,
         'Csrf-Token': csrf_token,
         'Cookie': f"WS={ws_token}; Csrf-Token={csrf_token}"

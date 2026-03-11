@@ -3,18 +3,11 @@
   "blacklist": ["voter_id_1", "voter_id_2"],
   "organizations": [
     {
-      "name": "Federal",
+      "name": "Example Org",
       "voatz_email": "user@example.com",
       "voatz_password": "password",
-      "voatz_org_id": 800000097,
-      "brevo_list_id": 57
-    },
-    {
-      "name": "Arizona",
-      "voatz_email": "user@example.com",
-      "voatz_password": "password",
-      "voatz_org_id": 800000118,
-      "brevo_list_id": 58
+      "voatz_org_id": 800000001,
+      "brevo_list_id": 1
     }
   ],
   "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",

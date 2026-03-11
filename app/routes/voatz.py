@@ -1,6 +1,7 @@
 """Voatz API proxy endpoints."""
 
 import logging
+import os
 import requests
 from fastapi import APIRouter, HTTPException, Depends, Query
 
@@ -10,16 +11,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["voatz"])
 
-# Voatz API constants
-LOGIN_URL = "https://vapi-vrb.nimsim.com/voatz/organizations/users/login"
-USERS_URL = "https://vapi-vrb.nimsim.com/voatz/customers/delegate/signups/byorg"
-EVENTS_URL = "https://vapi-vrb.nimsim.com/voatz/events/listbyorganization/chrono"
-CREATE_EVENT_URL = "https://vapi-vrb.nimsim.com/voatz/events/create"
+# Voatz API base URL (set via env var or Secrets Manager)
+VOATZ_API_BASE = os.getenv("VOATZ_API_BASE_URL", "https://api.voatz.com")
+LOGIN_URL = f"{VOATZ_API_BASE}/voatz/organizations/users/login"
+USERS_URL = f"{VOATZ_API_BASE}/voatz/customers/delegate/signups/byorg"
+EVENTS_URL = f"{VOATZ_API_BASE}/voatz/events/listbyorganization/chrono"
+CREATE_EVENT_URL = f"{VOATZ_API_BASE}/voatz/events/create"
 
 VOATZ_HEADERS = {
     "Accept-Encoding": "identity",
     "Content-Type": "application/json",
-    "Origin": "http://vapi-vrb.nimsim.com",
+    "Origin": os.getenv("VOATZ_API_ORIGIN", VOATZ_API_BASE),
 }
 
 

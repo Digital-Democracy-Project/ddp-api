@@ -153,22 +153,14 @@ Credentials are stored in AWS Secrets Manager. The secret should contain:
   "blacklist": ["voter_id_1", "voter_id_2"],
   "organizations": [
     {
-      "name": "Federal",
+      "name": "Example Org",
       "voatz_email": "user@example.com",
       "voatz_password": "password",
-      "voatz_org_id": 800000097,
-      "brevo_list_id": 57
-    },
-    {
-      "name": "Arizona",
-      "voatz_email": "user@example.com",
-      "voatz_password": "password",
-      "voatz_org_id": 800000118,
-      "brevo_list_id": 58
+      "voatz_org_id": 800000001,
+      "brevo_list_id": 1
     }
   ],
   "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
-  "sync_interval_minutes": 30,
   "votebot_service_url": "http://votebot-service:8000",
   "votebot_ws_url": "ws://votebot-service:8000/ws/chat",
   "votebot_api_key": "your-votebot-api-key",
@@ -270,11 +262,11 @@ aws secretsmanager create-secret \
     "blacklist": [],
     "organizations": [
       {
-        "name": "Federal",
+        "name": "Example Org",
         "voatz_email": "...",
         "voatz_password": "...",
-        "voatz_org_id": 800000097,
-        "brevo_list_id": 57
+        "voatz_org_id": 800000001,
+        "brevo_list_id": 1
       }
     ],
     "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",

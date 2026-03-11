@@ -172,11 +172,12 @@ async def compare_users(data: dict):
         blacklist = set()
 
     # Fetch voter list from Voatz
-    users_list_url = "https://vapi-vrb.nimsim.com/voatz/customers/delegate/signups/byorg"
+    voatz_base = os.getenv("VOATZ_API_BASE_URL", "https://api.voatz.com")
+    users_list_url = f"{voatz_base}/voatz/customers/delegate/signups/byorg"
     headers_voatz = {
         "Accept-Encoding": "identity",
         "Content-Type": "application/json",
-        "Origin": "http://vapi-vrb.nimsim.com",
+        "Origin": os.getenv("VOATZ_API_ORIGIN", voatz_base),
         "WS": ws_token,
         "Csrf-Token": csrf_token,
         "Cookie": f"WS={ws_token}; Csrf-Token={csrf_token}",
