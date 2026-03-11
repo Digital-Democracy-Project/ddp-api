@@ -1,13 +1,11 @@
 """
 DDP-API FastAPI Application.
 
-This application acts as a proxy server to receive API requests and forward
-them to the Voatz API, routed through the Digital Democracy Project EC2 instance
-which has a white-labeled IP address with Voatz.
+Auth gateway and API proxy for the Digital Democracy Project.
+Routes requests to internal services (VoteBot, DDP-Sync) and external APIs
+(Voatz, Brevo, Webflow CMS).
 
-The app also includes:
-- Background scheduler for periodic user sync
-- VoteBot proxy endpoints for chat and WebSocket streaming
+Scheduling and data pipelines are handled by DDP-Sync (port 8001).
 """
 
 import logging
@@ -28,41 +26,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Import routers
-from app.routes import voatz_router, brevo_router, sync_router, votebot_router, webflow_router
+from app.routes import voatz_router, brevo_router, votebot_router, webflow_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Manage application lifespan events.
-
-    Startup: Start the background scheduler
-    Shutdown: Stop the background scheduler
-    """
-    # Startup
-    try:
-        from scheduler import start_scheduler
-
-        start_scheduler()
-        logger.info("Background scheduler started")
-    except Exception as e:
-        logger.warning(f"Could not start scheduler (config may be missing): {e}")
-
+    """Application lifespan. DDP-API is stateless — no background jobs."""
+    logger.info("DDP-API started (proxy mode)")
     yield
-
-    # Shutdown
-    try:
-        from scheduler import stop_scheduler
-
-        stop_scheduler()
-        logger.info("Background scheduler stopped")
-    except Exception as e:
-        logger.warning(f"Error stopping scheduler: {e}")
+    logger.info("DDP-API shutdown")
 
 
 app = FastAPI(
     title="DDP-API",
-    description="Digital Democracy Project API - Voatz/Brevo middleware and VoteBot proxy",
+    description="Digital Democracy Project API - Auth gateway and service proxy",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -79,7 +56,6 @@ app.add_middleware(
 # Include routers
 app.include_router(voatz_router)
 app.include_router(brevo_router)
-app.include_router(sync_router)
 app.include_router(votebot_router)
 app.include_router(webflow_router)
 

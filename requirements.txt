@@ -4,17 +4,11 @@ uvicorn[standard]>=0.27.0
 httpx>=0.26.0
 websockets>=12.0
 
-# HTTP client (still needed for sync operations in scheduler)
+# HTTP client (used by voatz.py, brevo.py proxy routes)
 requests>=2.31.0
-
-# Background job scheduling
-APScheduler>=3.10.4
 
 # AWS
 boto3>=1.34.0
-
-# Email validation
-email-validator>=2.0.0
 
 # Environment variables
 python-dotenv>=1.0.0
