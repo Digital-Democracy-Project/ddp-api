@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Import routers
 from app.routes import voatz_router, brevo_router, votebot_router, webflow_router
+from app.routes.ddp_sync_proxy import router as ddp_sync_router
 
 
 @asynccontextmanager
@@ -58,6 +59,13 @@ app.include_router(voatz_router)
 app.include_router(brevo_router)
 app.include_router(votebot_router)
 app.include_router(webflow_router)
+
+# Catch-all proxy for ddp-sync — register under /votebot prefix
+# so external paths don't change (e.g., /votebot/sync/unified → ddp-sync)
+app.include_router(ddp_sync_router, prefix="/votebot")
+
+# Also register trigger routes at root level (for /trigger/* paths)
+app.include_router(ddp_sync_router)
 
 
 @app.get("/")
