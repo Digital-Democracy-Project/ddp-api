@@ -1,6 +1,8 @@
 # DDP-API
 
-Auth gateway and API proxy for the Digital Democracy Project. This FastAPI application routes requests to internal services (VoteBot, DDP-Sync) and external APIs (Voatz, Brevo, Webflow CMS). DDP-API has no scheduler and no background jobs — it is a stateless proxy (87-line `main.py`).
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+An open-source auth gateway and API proxy for the Digital Democracy Project. This FastAPI application routes requests to internal services (VoteBot, DDP-Sync) and external APIs (Voatz, Brevo, Webflow CMS). DDP-API has no scheduler and no background jobs — it is a stateless proxy (87-line `main.py`).
 
 ## Architecture
 
@@ -444,3 +446,7 @@ sudo systemctl restart ddp-api
 - [VoteBot](https://github.com/Digital-Democracy-Project/votebot) - RAG-powered chatbot for civic engagement
 - [Chat Widget](https://github.com/VotingRightsBrigade/chat-widget-poc) - Embeddable chat widget for VoteBot
 - [FillWebflowFields](https://github.com/VotingRightsBrigade/FillWebflowFields) - Webflow CMS management package (`webflow_cms`)
+
+## License
+
+This project is open source and available under the [MIT License](LICENSE).
