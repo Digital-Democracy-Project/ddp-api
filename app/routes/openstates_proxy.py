@@ -22,12 +22,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 OPENSTATES_SERVICE_URL = os.getenv("OPENSTATES_SERVICE_URL", "http://10.0.0.8:8002")
-OPENSTATES_API_KEY     = os.getenv("OPENSTATES_API_KEY", "00000000-0000-0000-0000-000000000001")
+# Internal UUID key for the local api-v3 instance. Not a secret — only reachable
+# over WireGuard. Sent as x-api-key header so callers never need to supply it.
+_OPENSTATES_INTERNAL_KEY = "00000000-0000-0000-0000-000000000001"
 
 
 async def _forward(request: Request, path: str) -> Response:
-    params = dict(request.query_params)
-    params["apikey"] = OPENSTATES_API_KEY  # inject local UUID key for api-v3
+    # Strip any incoming apikey param — callers authenticate via the ddp-api bearer token
+    params = {k: v for k, v in request.query_params.items() if k != "apikey"}
 
     try:
         async with httpx.AsyncClient(base_url=OPENSTATES_SERVICE_URL, timeout=30.0) as client:
@@ -35,7 +37,10 @@ async def _forward(request: Request, path: str) -> Response:
                 method=request.method,
                 url=f"/{path}",
                 params=params,
-                headers={"Content-Type": request.headers.get("content-type", "application/json")},
+                headers={
+                    "Content-Type": request.headers.get("content-type", "application/json"),
+                    "x-api-key": _OPENSTATES_INTERNAL_KEY,
+                },
                 content=await request.body(),
             )
             return Response(
