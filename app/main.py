@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # Import routers
 from app.routes import voatz_router, brevo_router, votebot_router, webflow_router
 from app.routes.ddp_sync_proxy import router as ddp_sync_router
+from app.routes.openstates_proxy import router as openstates_router
 
 
 @asynccontextmanager
@@ -66,6 +67,9 @@ app.include_router(ddp_sync_router, prefix="/votebot")
 
 # Also register trigger routes at root level (for /trigger/* paths)
 app.include_router(ddp_sync_router)
+
+# Local OpenStates api-v3 proxy — routes /openstates/* to Mac Studio :8002 via WireGuard
+app.include_router(openstates_router)
 
 
 @app.get("/")
