@@ -5,50 +5,32 @@ All requests to /openstates/* are forwarded to the Mac Studio api-v3
 all EC2 instances directly — this proxy makes it available to services
 (e.g. ddp-broker-py) that don't have WireGuard configured.
 
-Auth: accepts the configured OPENSTATES_PROXY_KEY as either an
-  ?apikey=<key> query parameter (ddp-broker-py's native format) or
-  an Authorization: Bearer <key> header. Forwards the UUID key to
-  api-v3 so api-v3's own auth is also satisfied.
+Auth: standard ddp-api bearer token (same as every other route).
+The local UUID key is injected when forwarding to api-v3 internally.
 """
 
 import logging
 import os
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request, Response
-from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+
+from app.middleware.auth import bearer_auth
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 OPENSTATES_SERVICE_URL = os.getenv("OPENSTATES_SERVICE_URL", "http://10.0.0.8:8002")
-OPENSTATES_PROXY_KEY   = os.getenv("OPENSTATES_PROXY_KEY", "00000000-0000-0000-0000-000000000001")
+OPENSTATES_API_KEY     = os.getenv("OPENSTATES_API_KEY", "00000000-0000-0000-0000-000000000001")
 
 
-def _check_auth(request: Request, apikey: Optional[str]) -> None:
-    """Accept the proxy key as ?apikey= or Authorization: Bearer."""
-    bearer = request.headers.get("Authorization", "")
-    if bearer.startswith("Bearer "):
-        bearer = bearer[7:]
-    provided = apikey or bearer
-    if provided != OPENSTATES_PROXY_KEY:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-
-async def _forward(request: Request, path: str, apikey: Optional[str]) -> Response:
-    _check_auth(request, apikey)
-
-    # Always send the local UUID key to api-v3 regardless of what came in
+async def _forward(request: Request, path: str) -> Response:
     params = dict(request.query_params)
-    params["apikey"] = OPENSTATES_PROXY_KEY
+    params["apikey"] = OPENSTATES_API_KEY  # inject local UUID key for api-v3
 
-    timeout = 30.0
     try:
-        async with httpx.AsyncClient(
-            base_url=OPENSTATES_SERVICE_URL,
-            timeout=timeout,
-        ) as client:
+        async with httpx.AsyncClient(base_url=OPENSTATES_SERVICE_URL, timeout=30.0) as client:
             response = await client.request(
                 method=request.method,
                 url=f"/{path}",
@@ -75,7 +57,7 @@ async def _forward(request: Request, path: str, apikey: Optional[str]) -> Respon
 async def proxy_openstates(
     request: Request,
     path: str,
-    apikey: Optional[str] = Query(default=None),
+    token: str = Depends(bearer_auth),
 ):
     """Forward all /openstates/* requests to the local api-v3 instance."""
-    return await _forward(request, path, apikey)
+    return await _forward(request, path)
