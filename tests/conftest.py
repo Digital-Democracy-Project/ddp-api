@@ -5,6 +5,7 @@ import pytest
 
 # Set test environment variables before any imports
 os.environ["API_BEARER_TOKEN"] = "testtoken"
+os.environ["API_READ_ONLY_TOKEN"] = "readonlytoken"
 os.environ["VOTEBOT_SERVICE_URL"] = "http://localhost:8000"
 os.environ["VOTEBOT_WS_URL"] = "ws://localhost:8000/ws/chat"
 os.environ["VOTEBOT_API_KEY"] = "test-votebot-key"
@@ -21,5 +22,11 @@ def test_client():
 
 @pytest.fixture
 def auth_headers():
-    """Return valid authentication headers."""
+    """Return write-access authentication headers."""
     return {"Authorization": "Bearer testtoken"}
+
+
+@pytest.fixture
+def read_only_headers():
+    """Return read-only authentication headers."""
+    return {"Authorization": "Bearer readonlytoken"}

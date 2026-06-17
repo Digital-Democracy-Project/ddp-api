@@ -15,7 +15,7 @@ import os
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.middleware.auth import bearer_auth
+from app.middleware.auth import read_auth
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ async def _forward(request: Request, path: str) -> Response:
 async def proxy_openstates(
     request: Request,
     path: str,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(read_auth),
 ):
     """Forward all /openstates/* requests to the local api-v3 instance."""
     return await _forward(request, path)

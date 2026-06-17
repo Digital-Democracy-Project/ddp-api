@@ -33,7 +33,7 @@ DDP-API/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI app entry point (87 lines)
 │   ├── middleware/
-│   │   └── auth.py          # Bearer token authentication
+│   │   └── auth.py          # read_auth / write_auth dependencies
 │   ├── routes/
 │   │   ├── voatz.py         # Voatz API endpoints
 │   │   ├── brevo.py         # Brevo API endpoints
@@ -50,26 +50,37 @@ DDP-API/
 └── config.local.example.json
 ```
 
+## Authentication
+
+DDP-API uses two bearer tokens to separate read and write access:
+
+| Token | Env var | Access |
+|-------|---------|--------|
+| Write token | `API_BEARER_TOKEN` | All endpoints (full access) |
+| Read-only token | `API_READ_ONLY_TOKEN` | Read/query endpoints only |
+
+The read-only token is optional. If `API_READ_ONLY_TOKEN` is not set, only the write token is accepted. The write token is always accepted on every authenticated endpoint.
+
 ## Endpoints
 
 ### Voatz/Brevo Endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/get_tokens` | POST | Bearer | Authenticate with Voatz and receive WS/CSRF tokens |
-| `/get_users` | POST | — | Retrieve users from Voatz (supports `?mode=diff_only`) |
-| `/user_updates` | POST | — | Compare Voatz users with Brevo contacts |
-| `/get_events` | POST | — | List events for an organization |
-| `/create_event` | POST | — | Create a new event |
-| `/update_segment_attribute` | POST | Bearer | Bulk update attributes in a Brevo segment |
+| `/get_tokens` | POST | Read | Authenticate with Voatz and receive WS/CSRF tokens |
+| `/get_users` | POST | Read | Retrieve users from Voatz (supports `?mode=diff_only`) |
+| `/user_updates` | POST | Read | Compare Voatz users with Brevo contacts |
+| `/get_events` | POST | Read | List events for an organization |
+| `/create_event` | POST | **Write** | Create a new event |
+| `/update_segment_attribute` | POST | **Write** | Bulk update attributes in a Brevo segment |
 
 ### VoteBot Chat Proxy Endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/votebot/chat` | POST | Bearer | Proxy chat requests to VoteBot |
-| `/votebot/chat/stream` | POST | Bearer | Proxy streaming chat requests (SSE) |
-| `/votebot/feedback` | POST | Bearer | Proxy feedback submissions |
+| `/votebot/chat` | POST | Read | Proxy chat requests to VoteBot |
+| `/votebot/chat/stream` | POST | Read | Proxy streaming chat requests (SSE) |
+| `/votebot/feedback` | POST | **Write** | Proxy feedback submissions |
 | `/votebot/ws` | WebSocket | — | Bidirectional WebSocket proxy to VoteBot |
 
 ### DDP-Sync Proxy Endpoints (catch-all)
@@ -78,45 +89,53 @@ These routes forward to DDP-Sync (:8001) automatically. New DDP-Sync endpoints a
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/votebot/sync/{path}` | GET/POST | Bearer | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
-| `/votebot/trigger/{path}` | GET/POST | Bearer | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
-| `/sync/{path}` | GET/POST | Bearer | Forward to DDP-Sync (root-level alias) |
-| `/trigger/{path}` | GET/POST | Bearer | Forward to DDP-Sync (root-level alias) |
+| `/votebot/sync/{path}` | GET | Read | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
+| `/votebot/sync/{path}` | POST/PUT/DELETE | **Write** | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
+| `/votebot/trigger/{path}` | GET | Read | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
+| `/votebot/trigger/{path}` | POST | **Write** | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
+| `/sync/{path}` | GET | Read | Forward to DDP-Sync (root-level alias) |
+| `/sync/{path}` | POST/PUT/DELETE | **Write** | Forward to DDP-Sync (root-level alias) |
+| `/trigger/{path}` | GET | Read | Forward to DDP-Sync (root-level alias) |
+| `/trigger/{path}` | POST | **Write** | Forward to DDP-Sync (root-level alias) |
 
 Common paths: `/votebot/sync/unified` (trigger sync), `/votebot/sync/unified/status/{id}` (poll status), `/votebot/trigger/user-sync` (Voatz→Brevo sync).
 
-### Webflow CMS Endpoints
+### OpenStates Proxy Endpoints
 
-All Webflow endpoints require Bearer token authentication.
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/openstates/{path}` | GET/POST | Read | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
+
+### Webflow CMS Endpoints
 
 #### Fill endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/webflow/fill/gov-url` | POST | Bearer | Set gov-url on a single CMS item |
-| `/webflow/fill/session-code` | POST | Bearer | Fill session-code, bill-prefix, and bill-number from open-states URL |
-| `/webflow/fill/map-url` | POST | Bearer | Fill map-url and set bill visibility |
+| `/webflow/fill/gov-url` | POST | **Write** | Set gov-url on a single CMS item |
+| `/webflow/fill/session-code` | POST | **Write** | Fill session-code, bill-prefix, and bill-number from open-states URL |
+| `/webflow/fill/map-url` | POST | **Write** | Fill map-url and set bill visibility |
 
 #### Sync endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/webflow/sync/bill-org` | POST | Bearer | Sync bill-org references (populate orgs' bills-support/bills-oppose) |
-| `/webflow/sync/org-about-fields` | POST | Bearer | Parse about-organization text into structured sub-fields |
+| `/webflow/sync/bill-org` | POST | **Write** | Sync bill-org references (populate orgs' bills-support/bills-oppose) |
+| `/webflow/sync/org-about-fields` | POST | **Write** | Parse about-organization text into structured sub-fields |
 
 #### Check endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/webflow/check/org-missing-fields` | POST | Bearer | Check organizations for missing fields, optionally send Zapier hooks |
-| `/webflow/check/duplicates` | POST | Bearer | Find duplicate and companion bills |
+| `/webflow/check/org-missing-fields` | POST | Read | Check organizations for missing fields, optionally send Zapier hooks |
+| `/webflow/check/duplicates` | POST | Read | Find duplicate and companion bills |
 
 #### Resolve / Delete endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/webflow/resolve/duplicate-group` | POST | Bearer | Migrate content from anomalous duplicates to the correct item, then delete |
-| `/webflow/items/{item_id}` | DELETE | Bearer | Delete a CMS item, optionally removing references from other collections first |
+| `/webflow/resolve/duplicate-group` | POST | **Write** | Migrate content from anomalous duplicates to the correct item, then delete |
+| `/webflow/items/{item_id}` | DELETE | **Write** | Delete a CMS item, optionally removing references from other collections first |
 
 ### Health Endpoints
 
@@ -133,7 +152,8 @@ All Webflow endpoints require Bearer token authentication.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_BEARER_TOKEN` | Bearer token for authenticating requests | (required) |
+| `API_BEARER_TOKEN` | Bearer token for full write access | (required) |
+| `API_READ_ONLY_TOKEN` | Bearer token for read-only access (optional) | (disabled if unset) |
 | `AWS_SECRET_NAME` | Secrets Manager secret name | `ddp-api/org-credentials` |
 | `AWS_REGION` | AWS region | `us-east-1` |
 | `LOCAL_CONFIG_PATH` | Path to local config file | `config.local.json` |

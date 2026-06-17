@@ -5,7 +5,7 @@ import os
 import requests
 from fastapi import APIRouter, HTTPException, Depends, Query
 
-from app.middleware.auth import bearer_auth
+from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ VOATZ_HEADERS = {
 @router.post("/get_tokens")
 async def get_tokens(
     data: dict,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(read_auth),
 ):
     """
     Get Voatz WS/CSRF tokens by authenticating with Voatz credentials.
@@ -82,6 +82,7 @@ async def get_tokens(
 async def get_users(
     data: dict,
     mode: str = Query(default=None),
+    token: str = Depends(read_auth),
 ):
     """
     Get users from Voatz for an organization.
@@ -210,7 +211,7 @@ def _process_diff_mode(data: dict, users: list) -> dict:
 
 
 @router.post("/get_events")
-async def get_events(data: dict):
+async def get_events(data: dict, token: str = Depends(read_auth)):
     """
     Get events from Voatz for an organization.
 
@@ -269,7 +270,7 @@ async def get_events(data: dict):
 
 
 @router.post("/create_event")
-async def create_event(data: dict):
+async def create_event(data: dict, token: str = Depends(write_auth)):
     """
     Create an event in Voatz.
 

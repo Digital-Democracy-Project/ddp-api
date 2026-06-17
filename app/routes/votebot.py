@@ -10,7 +10,7 @@ import websockets
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from app.middleware.auth import bearer_auth
+from app.middleware.auth import read_auth, write_auth
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ def get_votebot_config() -> dict:
 @router.post("/chat")
 async def votebot_chat(
     request: dict,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(read_auth),
 ):
     """
     Proxy chat requests to VoteBot service.
@@ -87,7 +87,7 @@ async def votebot_chat(
 @router.post("/chat/stream")
 async def votebot_chat_stream(
     request: dict,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(read_auth),
 ):
     """
     Proxy streaming chat requests to VoteBot service with SSE passthrough.
@@ -137,7 +137,7 @@ async def votebot_chat_stream(
 @router.post("/feedback")
 async def votebot_feedback(
     request: dict,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(write_auth),
 ):
     """
     Proxy feedback submissions to VoteBot service.

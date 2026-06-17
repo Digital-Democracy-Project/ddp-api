@@ -9,7 +9,7 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.middleware.auth import bearer_auth
+from app.middleware.auth import read_auth, write_auth
 from app.schemas.webflow import (
     BillOrgSyncRequest,
     DeleteItemRequest,
@@ -89,7 +89,7 @@ def _resolve_orgs_collection(override: str | None) -> str:
 # ------------------------------------------------------------------
 
 @router.post("/fill/gov-url", response_model=FillResultResponse)
-async def fill_gov_url(req: FillGovUrlRequest, token: str = Depends(bearer_auth)):
+async def fill_gov_url(req: FillGovUrlRequest, token: str = Depends(write_auth)):
     """Set gov-url on a single CMS item."""
     try:
         from webflow_cms.services.fill_gov_url import GovUrlService
@@ -118,7 +118,7 @@ async def fill_gov_url(req: FillGovUrlRequest, token: str = Depends(bearer_auth)
 
 
 @router.post("/fill/session-code", response_model=FillResultResponse)
-async def fill_session_code(req: FillSessionCodeRequest, token: str = Depends(bearer_auth)):
+async def fill_session_code(req: FillSessionCodeRequest, token: str = Depends(write_auth)):
     """Fill session-code, bill-prefix, bill-number from open-states-url-2."""
     try:
         from webflow_cms.services.fill_session_code import SessionCodeService
@@ -145,7 +145,7 @@ async def fill_session_code(req: FillSessionCodeRequest, token: str = Depends(be
 
 
 @router.post("/fill/map-url", response_model=FillResultResponse)
-async def fill_map_url(req: FillMapUrlRequest, token: str = Depends(bearer_auth)):
+async def fill_map_url(req: FillMapUrlRequest, token: str = Depends(write_auth)):
     """Fill map-url and set bill visibility."""
     try:
         from webflow_cms.services.fill_map_url import MapUrlService
@@ -176,7 +176,7 @@ async def fill_map_url(req: FillMapUrlRequest, token: str = Depends(bearer_auth)
 # ------------------------------------------------------------------
 
 @router.post("/sync/bill-org", response_model=SyncResultResponse)
-async def sync_bill_org(req: BillOrgSyncRequest, token: str = Depends(bearer_auth)):
+async def sync_bill_org(req: BillOrgSyncRequest, token: str = Depends(write_auth)):
     """Sync bill-org references (ensure orgs' bills-support/bills-oppose are populated)."""
     try:
         from webflow_cms.services.bill_org_sync import BillOrgSyncService
@@ -202,7 +202,7 @@ async def sync_bill_org(req: BillOrgSyncRequest, token: str = Depends(bearer_aut
 
 
 @router.post("/sync/org-about-fields", response_model=FillResultResponse)
-async def sync_org_about_fields(req: OrgAboutFieldsRequest, token: str = Depends(bearer_auth)):
+async def sync_org_about_fields(req: OrgAboutFieldsRequest, token: str = Depends(write_auth)):
     """Parse about-organization into sub-fields for all orgs."""
     try:
         from webflow_cms.services.bill_org_sync import BillOrgSyncService
@@ -228,7 +228,7 @@ async def sync_org_about_fields(req: OrgAboutFieldsRequest, token: str = Depends
 # ------------------------------------------------------------------
 
 @router.post("/check/org-missing-fields", response_model=OrgMissingFieldsResponse)
-async def check_org_missing_fields(req: OrgMissingFieldsRequest, token: str = Depends(bearer_auth)):
+async def check_org_missing_fields(req: OrgMissingFieldsRequest, token: str = Depends(read_auth)):
     """Check organizations for missing fields and optionally send Zapier hooks."""
     try:
         from webflow_cms.services.bill_org_sync import BillOrgSyncService
@@ -254,7 +254,7 @@ async def check_org_missing_fields(req: OrgMissingFieldsRequest, token: str = De
 
 
 @router.post("/check/duplicates", response_model=FindDuplicatesResponse)
-async def check_duplicates(req: FindDuplicatesRequest, token: str = Depends(bearer_auth)):
+async def check_duplicates(req: FindDuplicatesRequest, token: str = Depends(read_auth)):
     """Find duplicate and companion bills."""
     try:
         from webflow_cms.services.duplicate_bills import DuplicateBillsService
@@ -314,7 +314,7 @@ async def check_duplicates(req: FindDuplicatesRequest, token: str = Depends(bear
 # ------------------------------------------------------------------
 
 @router.post("/resolve/duplicate-group", response_model=ResolveDuplicateGroupResponse)
-async def resolve_duplicate_group(req: ResolveDuplicateGroupRequest, token: str = Depends(bearer_auth)):
+async def resolve_duplicate_group(req: ResolveDuplicateGroupRequest, token: str = Depends(write_auth)):
     """Resolve a duplicate group: migrate content and delete anomalous items."""
     try:
         from webflow_cms.services.duplicate_bills import DuplicateBillsService
@@ -348,7 +348,7 @@ async def resolve_duplicate_group(req: ResolveDuplicateGroupRequest, token: str 
 # ------------------------------------------------------------------
 
 @router.delete("/items/{item_id}", response_model=DeleteItemResponse)
-async def delete_item(item_id: str, req: DeleteItemRequest, token: str = Depends(bearer_auth)):
+async def delete_item(item_id: str, req: DeleteItemRequest, token: str = Depends(write_auth)):
     """Delete a CMS item, optionally removing references first."""
     try:
         from webflow_cms.services.delete_item import DeleteItemService

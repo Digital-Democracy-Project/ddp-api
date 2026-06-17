@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from fastapi import APIRouter, HTTPException, Depends
 
-from app.middleware.auth import bearer_auth
+from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ BREVO_SESSION.mount("http://", HTTPAdapter(max_retries=_brevo_retry))
 @router.post("/update_segment_attribute")
 async def update_segment_attribute(
     data: dict,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(write_auth),
 ):
     """
     Bulk update an attribute for all contacts in a Brevo segment.
@@ -146,7 +146,7 @@ async def update_segment_attribute(
 
 
 @router.post("/user_updates")
-async def compare_users(data: dict):
+async def compare_users(data: dict, token: str = Depends(read_auth)):
     """
     Compare Voatz users with Brevo contacts and return differences.
 

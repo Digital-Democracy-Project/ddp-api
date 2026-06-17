@@ -2,6 +2,9 @@
 
 All requests to /sync/* and /trigger/* are forwarded to ddp-sync (:8001).
 New ddp-sync endpoints are automatically available — no DDP-API code changes needed.
+
+GET requests accept either the write or read-only token.
+POST/PUT/DELETE requests require the write token.
 """
 
 import logging
@@ -10,7 +13,7 @@ import os
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.middleware.auth import bearer_auth
+from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
@@ -70,25 +73,51 @@ async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
 
 @router.api_route(
     "/sync/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE"],
+    methods=["GET"],
 )
-async def proxy_sync(
+async def proxy_sync_read(
     request: Request,
     path: str,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(read_auth),
 ):
-    """Forward all /sync/* requests to ddp-sync."""
+    """Forward GET /sync/* requests to ddp-sync (read-only token accepted)."""
+    return await _forward_to_ddp_sync(request, f"sync/{path}")
+
+
+@router.api_route(
+    "/sync/{path:path}",
+    methods=["POST", "PUT", "DELETE"],
+)
+async def proxy_sync_write(
+    request: Request,
+    path: str,
+    token: str = Depends(write_auth),
+):
+    """Forward POST/PUT/DELETE /sync/* requests to ddp-sync (write token required)."""
     return await _forward_to_ddp_sync(request, f"sync/{path}")
 
 
 @router.api_route(
     "/trigger/{path:path}",
-    methods=["GET", "POST"],
+    methods=["GET"],
 )
-async def proxy_trigger(
+async def proxy_trigger_read(
     request: Request,
     path: str,
-    token: str = Depends(bearer_auth),
+    token: str = Depends(read_auth),
 ):
-    """Forward all /trigger/* requests to ddp-sync."""
+    """Forward GET /trigger/* requests to ddp-sync (read-only token accepted)."""
+    return await _forward_to_ddp_sync(request, f"trigger/{path}")
+
+
+@router.api_route(
+    "/trigger/{path:path}",
+    methods=["POST"],
+)
+async def proxy_trigger_write(
+    request: Request,
+    path: str,
+    token: str = Depends(write_auth),
+):
+    """Forward POST /trigger/* requests to ddp-sync (write token required)."""
     return await _forward_to_ddp_sync(request, f"trigger/{path}")
