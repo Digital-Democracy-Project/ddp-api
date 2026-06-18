@@ -1,42 +1,40 @@
 """Voatz API proxy endpoints."""
 
 import logging
-import os
-import requests
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.middleware.auth import read_auth, write_auth
+from app.services.voatz import (
+    CREATE_EVENT_URL,
+    VOATZ_HEADERS,
+    fetch_events,
+    fetch_tokens,
+    fetch_tokens_from_config,
+    fetch_users,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["voatz"])
 
-# Voatz API base URL (set via env var or Secrets Manager)
-VOATZ_API_BASE = os.getenv("VOATZ_API_BASE_URL", "https://api.voatz.com")
-LOGIN_URL = f"{VOATZ_API_BASE}/voatz/organizations/users/login"
-USERS_URL = f"{VOATZ_API_BASE}/voatz/customers/delegate/signups/byorg"
-EVENTS_URL = f"{VOATZ_API_BASE}/voatz/events/listbyorganization/chrono"
-CREATE_EVENT_URL = f"{VOATZ_API_BASE}/voatz/events/create"
 
-VOATZ_HEADERS = {
-    "Accept-Encoding": "identity",
-    "Content-Type": "application/json",
-    "Origin": os.getenv("VOATZ_API_ORIGIN", VOATZ_API_BASE),
-}
-
+# ---------------------------------------------------------------------------
+# Passthrough endpoints — callers supply Voatz credentials / tokens directly
+# ---------------------------------------------------------------------------
 
 @router.post("/get_tokens")
-async def get_tokens(
-    data: dict,
-    token: str = Depends(read_auth),
-):
+async def get_tokens(data: dict, _key=Depends(read_auth)):
     """
     Get Voatz WS/CSRF tokens by authenticating with Voatz credentials.
 
     Required fields: emailAddress, password, organizationid
     """
-    email = data.get("emailAddress")
-    password = data.get("password")
+    import requests
+
+    email           = data.get("emailAddress")
+    password        = data.get("password")
     organization_id = data.get("organizationid")
 
     if not email or not password or not organization_id:
@@ -45,36 +43,17 @@ async def get_tokens(
             detail="Missing one or more required fields: emailAddress, password, organizationid",
         )
 
-    login_payload = {
-        "emailAddress": email,
-        "password": password,
-        "authData": [{"key": "organizationid", "value": str(organization_id)}],
-    }
-
     try:
-        login_response = requests.post(
-            LOGIN_URL, headers=VOATZ_HEADERS, json=login_payload, timeout=30
-        )
-    except requests.RequestException as e:
-        logger.error(f"Voatz login request failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Voatz API request failed: {e}")
-
-    if login_response.status_code == 200 and login_response.text.strip() == "OK":
-        ws_token = login_response.cookies.get("WS") or login_response.headers.get("WS")
-        csrf_token = login_response.cookies.get("Csrf-Token") or login_response.headers.get(
-            "Csrf-Token"
-        )
-
-        if ws_token and csrf_token:
-            return {"status": "success", "WS": ws_token, "Csrf-Token": csrf_token}
-        else:
-            raise HTTPException(status_code=500, detail="Tokens not found in Voatz response")
-    else:
+        tokens = fetch_tokens(email, password, int(organization_id))
+        return {"status": "success", "WS": tokens["WS"], "Csrf-Token": tokens["Csrf-Token"]}
+    except HTTPException as e:
+        # Return the Voatz error as a structured response rather than re-raising,
+        # to preserve the existing API contract for this passthrough endpoint.
         return {
             "status": "error",
             "message": "Login failed",
-            "status_code": login_response.status_code,
-            "text": login_response.text,
+            "status_code": e.status_code,
+            "text": e.detail,
         }
 
 
@@ -82,7 +61,7 @@ async def get_tokens(
 async def get_users(
     data: dict,
     mode: str = Query(default=None),
-    token: str = Depends(read_auth),
+    _key=Depends(read_auth),
 ):
     """
     Get users from Voatz for an organization.
@@ -91,65 +70,29 @@ async def get_users(
     Optional query param: mode=diff_only (for comparing with Brevo voter_ids)
     """
     organization_id = data.get("organizationId")
-    ws_token = data.get("WS")
-    csrf_token = data.get("Csrf-Token")
+    ws_token        = data.get("WS")
+    csrf_token      = data.get("Csrf-Token")
 
     if not organization_id or not ws_token or not csrf_token:
         raise HTTPException(status_code=400, detail="Missing required fields.")
 
-    headers = {
-        **VOATZ_HEADERS,
-        "WS": ws_token,
-        "Csrf-Token": csrf_token,
-        "Cookie": f"WS={ws_token}; Csrf-Token={csrf_token}",
-    }
-
-    users = []
-    min_id = None
-
-    while True:
-        payload = {"organizationId": int(organization_id), "limit": 1000}
-        if min_id:
-            payload["minId"] = min_id
-
-        try:
-            response = requests.post(USERS_URL, headers=headers, json=payload, timeout=60)
-        except requests.RequestException as e:
-            logger.error(f"Voatz users request failed: {e}")
-            raise HTTPException(status_code=502, detail=f"Voatz API request failed: {e}")
-
-        if response.status_code != 200:
-            return {
-                "message": "Failed to retrieve users.",
-                "status": "error",
-                "code": response.status_code,
-                "text": response.text,
-            }
-
-        try:
-            response_data = response.json()
-        except Exception:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to parse JSON from Voatz response: {response.text}",
-            )
-
-        result = response_data.get("result", [])
-        if not result:
-            break
-
-        users.extend(result)
-        min_id = response_data.get("minId")
+    try:
+        users = fetch_users(ws_token, csrf_token, organization_id)
+    except HTTPException as e:
+        return {
+            "message": "Failed to retrieve users.",
+            "status": "error",
+            "code": e.status_code,
+            "text": e.detail,
+        }
 
     if mode == "diff_only":
         return _process_diff_mode(data, users)
-    else:
-        return {"status": "success", "users": users}
+    return {"status": "success", "users": users}
 
 
 def _process_diff_mode(data: dict, users: list) -> dict:
     """Process diff_only mode for get_users."""
-    # Handle optional voatz_blacklist
     blacklist_raw = data.get("voatz_blacklist", [])
     if isinstance(blacklist_raw, str):
         blacklist = set(v.strip() for v in blacklist_raw.split(",") if v.strip())
@@ -158,14 +101,14 @@ def _process_diff_mode(data: dict, users: list) -> dict:
     else:
         blacklist = set()
 
-    voter_ids_from_api = []
+    voter_ids_from_api  = []
     voter_details_by_id = {}
 
     def flatten_user(user):
         flattened = {k: v for k, v in user.items() if k != "orgVerificationStatus"}
-        kv_pairs = user.get("orgVerificationStatus", {}).get("keyValues", [])
+        kv_pairs  = user.get("orgVerificationStatus", {}).get("keyValues", [])
         for pair in kv_pairs:
-            key = pair.get("key")
+            key   = pair.get("key")
             value = pair.get("value")
             if key and value is not None:
                 flattened[key] = value
@@ -189,29 +132,29 @@ def _process_diff_mode(data: dict, users: list) -> dict:
     else:
         raise HTTPException(status_code=400, detail="Invalid voter_ids format")
 
-    api_set = set(voter_ids_from_api)
+    api_set   = set(voter_ids_from_api)
     brevo_set = set(brevo_ids)
 
-    added_ids = api_set - brevo_set - blacklist
+    added_ids   = api_set - brevo_set - blacklist
     removed_ids = brevo_set - api_set
 
-    added_users = [voter_details_by_id[v_id] for v_id in added_ids]
+    added_users   = [voter_details_by_id[v_id] for v_id in added_ids]
     removed_users = [v_id for v_id in removed_ids]
 
     return {
-        "status": "success",
-        "diff_mode": True,
-        "added_users": added_users,
-        "removed_voter_ids": removed_users,
-        "api_total": len(api_set),
-        "brevo_total": len(brevo_set),
-        "new_count": len(added_users),
-        "removed_count": len(removed_users),
+        "status":             "success",
+        "diff_mode":          True,
+        "added_users":        added_users,
+        "removed_voter_ids":  removed_users,
+        "api_total":          len(api_set),
+        "brevo_total":        len(brevo_set),
+        "new_count":          len(added_users),
+        "removed_count":      len(removed_users),
     }
 
 
 @router.post("/get_events")
-async def get_events(data: dict, token: str = Depends(read_auth)):
+async def get_events(data: dict, _key=Depends(read_auth)):
     """
     Get events from Voatz for an organization.
 
@@ -219,10 +162,10 @@ async def get_events(data: dict, token: str = Depends(read_auth)):
     Optional fields: limit, minTs
     """
     organization_id = data.get("organizationId")
-    ws_token = data.get("WS")
-    csrf_token = data.get("Csrf-Token")
-    limit = data.get("limit")
-    min_ts = data.get("minTs")
+    ws_token        = data.get("WS")
+    csrf_token      = data.get("Csrf-Token")
+    limit           = data.get("limit")
+    min_ts          = data.get("minTs")
 
     if not organization_id or not ws_token or not csrf_token:
         raise HTTPException(
@@ -230,56 +173,32 @@ async def get_events(data: dict, token: str = Depends(read_auth)):
             detail="Missing required fields: organizationId, WS, or Csrf-Token",
         )
 
-    headers = {
-        **VOATZ_HEADERS,
-        "WS": ws_token,
-        "Csrf-Token": csrf_token,
-        "Cookie": f"WS={ws_token}; Csrf-Token={csrf_token}",
-    }
-
-    payload = {"organizationId": organization_id}
-    if limit:
-        payload["limit"] = limit
-    if min_ts:
-        payload["minTs"] = min_ts
-
     try:
-        response = requests.post(EVENTS_URL, headers=headers, json=payload, timeout=60)
-    except requests.RequestException as e:
-        logger.error(f"Voatz events request failed: {e}")
-        raise HTTPException(status_code=502, detail=f"Voatz API request failed: {e}")
-
-    if response.status_code != 200:
+        events_data = fetch_events(ws_token, csrf_token, organization_id, limit=limit, min_ts=min_ts)
+    except HTTPException as e:
         return {
-            "status": "error",
+            "status":  "error",
             "message": "Failed to fetch events",
-            "code": response.status_code,
-            "text": response.text,
-        }
-
-    try:
-        events_data = response.json()
-    except Exception:
-        return {
-            "status": "error",
-            "message": "Invalid JSON in response",
-            "raw_response": response.text,
+            "code":    e.status_code,
+            "text":    e.detail,
         }
 
     return {"status": "success", "events": events_data}
 
 
 @router.post("/create_event")
-async def create_event(data: dict, token: str = Depends(write_auth)):
+async def create_event(data: dict, _key=Depends(write_auth)):
     """
     Create an event in Voatz.
 
     Required fields: organizationId, WS, Csrf-Token
     Additional fields are passed through to the Voatz API.
     """
+    import requests as _requests
+
     organization_id = data.get("organizationId")
-    ws_token = data.get("WS")
-    csrf_token = data.get("Csrf-Token")
+    ws_token        = data.get("WS")
+    csrf_token      = data.get("Csrf-Token")
 
     if not organization_id or not ws_token or not csrf_token:
         raise HTTPException(
@@ -289,29 +208,28 @@ async def create_event(data: dict, token: str = Depends(write_auth)):
 
     headers = {
         **VOATZ_HEADERS,
-        "WS": ws_token,
+        "WS":         ws_token,
         "Csrf-Token": csrf_token,
-        "Cookie": f"WS={ws_token}; Csrf-Token={csrf_token}",
+        "Cookie":     f"WS={ws_token}; Csrf-Token={csrf_token}",
     }
 
-    # Remove auth fields and pass through the rest
     payload = data.copy()
     payload.pop("WS", None)
     payload.pop("Csrf-Token", None)
     payload.pop("organizationId", None)
 
     try:
-        response = requests.post(CREATE_EVENT_URL, headers=headers, json=payload, timeout=60)
-    except requests.RequestException as e:
-        logger.error(f"Voatz create event request failed: {e}")
+        response = _requests.post(CREATE_EVENT_URL, headers=headers, json=payload, timeout=60)
+    except _requests.RequestException as e:
+        logger.error("Voatz create event request failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Voatz API request failed: {e}")
 
     if response.status_code != 200:
         return {
-            "status": "error",
+            "status":  "error",
             "message": "Failed to create event",
-            "code": response.status_code,
-            "text": response.text,
+            "code":    response.status_code,
+            "text":    response.text,
         }
 
     try:
@@ -320,3 +238,53 @@ async def create_event(data: dict, token: str = Depends(write_auth)):
         return {"status": "success", "raw_response": response.text}
 
     return {"status": "success", "result": result}
+
+
+# ---------------------------------------------------------------------------
+# Pre-authenticated wrappers — server fetches Voatz tokens from config;
+# callers need only a DDP-API read key and the org_id
+# ---------------------------------------------------------------------------
+
+def _check_org_access(auth_key, org_id: int):
+    """Raise 403 if the key has an org_ids restriction that excludes this org."""
+    restricted = getattr(auth_key, "restrictions", {}).get("org_ids")
+    if restricted and str(org_id) not in restricted:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized for this organization",
+        )
+
+
+@router.get("/voatz/users/{org_id}")
+async def get_users_wrapped(org_id: int, auth_key=Depends(read_auth)):
+    """
+    Pre-authenticated users endpoint.
+
+    Fetches Voatz tokens from server config — callers need only a DDP-API
+    read key and the org_id. No Voatz credentials required.
+    """
+    _check_org_access(auth_key, org_id)
+    tokens = fetch_tokens_from_config(org_id)
+    users  = fetch_users(tokens["WS"], tokens["Csrf-Token"], org_id)
+    return {"status": "success", "users": users}
+
+
+@router.get("/voatz/events/{org_id}")
+async def get_events_wrapped(
+    org_id: int,
+    limit:  Optional[int] = Query(default=None),
+    min_ts: Optional[int] = Query(default=None, alias="minTs"),
+    auth_key=Depends(read_auth),
+):
+    """
+    Pre-authenticated events endpoint.
+
+    Fetches Voatz tokens from server config — callers need only a DDP-API
+    read key and the org_id. No Voatz credentials required.
+
+    Query params: limit (int), minTs (int)
+    """
+    _check_org_access(auth_key, org_id)
+    tokens = fetch_tokens_from_config(org_id)
+    events = fetch_events(tokens["WS"], tokens["Csrf-Token"], org_id, limit=limit, min_ts=min_ts)
+    return {"status": "success", "events": events}

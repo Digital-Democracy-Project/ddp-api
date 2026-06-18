@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An open-source auth gateway and API proxy for the Digital Democracy Project. This FastAPI application routes requests to internal services (VoteBot, DDP-Sync) and external APIs (Voatz, Brevo, Webflow CMS). DDP-API has no scheduler and no background jobs — it is a stateless proxy (87-line `main.py`).
+An open-source auth gateway and API proxy for the Digital Democracy Project. This FastAPI application routes requests to internal services (VoteBot, DDP-Sync) and external APIs (Voatz, Brevo, Webflow CMS). DDP-API has no scheduler and no background jobs — it is a stateless proxy.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ nginx (:80/443)
 This proxy handles:
 - **VoteBot Chat Proxy** - Proxy chat requests to the VoteBot RAG service (HTTP, SSE streaming, WebSocket)
 - **DDP-Sync Proxy** - Catch-all proxy forwarding `/sync/*` and `/trigger/*` to DDP-Sync (new endpoints in DDP-Sync are automatically available — no DDP-API code changes needed)
-- **Voatz API Authentication** - Proxy authentication to obtain WS and CSRF tokens
+- **Voatz API** - Proxy authentication and pre-authenticated wrappers for read-only consumers
 - **Event Management** - List and create events via Voatz API
 - **Brevo Segment Updates** - Bulk update contact attributes in Brevo segments
 - **Webflow CMS Management** - Fill, sync, check, and manage Webflow CMS items via the [`webflow_cms`](https://github.com/VotingRightsBrigade/FillWebflowFields) package
@@ -31,18 +31,23 @@ This proxy handles:
 DDP-API/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI app entry point (87 lines)
+│   ├── main.py              # FastAPI app entry point
 │   ├── middleware/
-│   │   └── auth.py          # read_auth / write_auth dependencies
+│   │   └── auth.py          # read_auth / write_auth / admin_auth dependencies
 │   ├── routes/
-│   │   ├── voatz.py         # Voatz API endpoints
+│   │   ├── voatz.py         # Voatz API endpoints + pre-authenticated wrappers
 │   │   ├── brevo.py         # Brevo API endpoints
+│   │   ├── admin.py         # API key management endpoints
 │   │   ├── ddp_sync_proxy.py # Catch-all proxy for DDP-Sync (:8001)
 │   │   ├── votebot.py       # VoteBot chat proxy endpoints
 │   │   └── webflow.py       # Webflow CMS management endpoints
-│   └── schemas/
-│       ├── common.py        # Pydantic request/response models
-│       └── webflow.py       # Webflow request/response models
+│   ├── schemas/
+│   │   ├── common.py        # Pydantic request/response models
+│   │   ├── admin.py         # Admin key management models
+│   │   └── webflow.py       # Webflow request/response models
+│   └── services/
+│       ├── voatz.py         # Voatz HTTP client (shared by routes and wrappers)
+│       └── key_store.py     # In-memory API key store backed by Secrets Manager
 ├── config.py                # Configuration loader (AWS/local)
 ├── middleware.py            # Legacy Flask app (deprecated, not imported)
 ├── requirements.txt
@@ -52,18 +57,55 @@ DDP-API/
 
 ## Authentication
 
-DDP-API uses two bearer tokens to separate read and write access:
+DDP-API uses a managed API key system backed by AWS Secrets Manager. Keys have one of three scopes:
 
-| Token | Env var | Access |
-|-------|---------|--------|
-| Write token | `API_BEARER_TOKEN` | All endpoints (full access) |
-| Read-only token | `API_READ_ONLY_TOKEN` | Read/query endpoints only |
+| Scope | Access |
+|-------|--------|
+| `read` | All read/query endpoints |
+| `write` | All mutating endpoints (also satisfies `read`) |
+| `admin` | Key management endpoints (`/admin/*`) only |
 
-The read-only token is optional. If `API_READ_ONLY_TOKEN` is not set, only the write token is accepted. The write token is always accepted on every authenticated endpoint.
+Keys are issued via `POST /admin/keys`, stored as SHA-256 hashes, and shown in plaintext exactly once at issuance.
+
+### Backward-compatible env-var tokens
+
+During initial deployment and for bootstrapping, two environment variable tokens are supported as a fallback:
+
+| Variable | Implicit scopes |
+|----------|-----------------|
+| `API_BEARER_TOKEN` | `read`, `write`, `admin` |
+| `API_READ_ONLY_TOKEN` | `read` |
+
+These should be retired once managed keys are issued to all callers. See [Key Management](#key-management) below.
+
+### Key format
+
+Issued keys are prefixed for at-a-glance identification:
+- `ddp-ro-...` — read scope
+- `ddp-rw-...` — read + write scope
+- `ddp-admin-...` — admin scope
+
+### Revocation
+
+`DELETE /admin/keys/{key_id}` takes effect immediately in the running process. Other instances pick up the change within 60 seconds (TTL cache). For immediate propagation across all instances, call `POST /admin/reload` after revoking.
 
 ## Endpoints
 
+### Key Management (Admin)
+
+Admin endpoints are only visible at `/admin/docs` (requires an admin-scoped key) and are excluded from the public `/docs`.
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/admin/keys` | POST | **Admin** | Issue a new API key — plaintext shown once |
+| `/admin/keys` | GET | **Admin** | List all keys (no hashes or plaintext) |
+| `/admin/keys/{key_id}` | DELETE | **Admin** | Revoke a key immediately |
+| `/admin/keys/{key_id}/rotate` | POST | **Admin** | Issue a replacement; old key expires after grace window |
+| `/admin/reload` | POST | **Admin** | Force config + key store reload from Secrets Manager |
+
 ### Voatz/Brevo Endpoints
+
+#### Passthrough — callers supply Voatz credentials or tokens
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
@@ -73,6 +115,15 @@ The read-only token is optional. If `API_READ_ONLY_TOKEN` is not set, only the w
 | `/get_events` | POST | Read | List events for an organization |
 | `/create_event` | POST | **Write** | Create a new event |
 | `/update_segment_attribute` | POST | **Write** | Bulk update attributes in a Brevo segment |
+
+#### Pre-authenticated wrappers — no Voatz credentials needed
+
+Callers need only a DDP-API read key and an `org_id`. The server fetches Voatz tokens from its own config. Useful for dev environments that should not hold Voatz credentials. If a key has an `org_ids` restriction, requests for other orgs return 403.
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/voatz/users/{org_id}` | GET | Read | Fetch all users for an org |
+| `/voatz/events/{org_id}` | GET | Read | Fetch events for an org (`?limit=&minTs=`) |
 
 ### VoteBot Chat Proxy Endpoints
 
@@ -142,9 +193,55 @@ Common paths: `/votebot/sync/unified` (trigger sync), `/votebot/sync/unified/sta
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Service info and version |
-| `/health` | GET | Health check |
-| `/docs` | GET | OpenAPI documentation (Swagger UI) |
-| `/redoc` | GET | OpenAPI documentation (ReDoc) |
+| `/health` | GET | Health check (no auth required) |
+| `/docs` | GET | Public OpenAPI docs — Swagger UI (excludes admin endpoints) |
+| `/redoc` | GET | Public OpenAPI docs — ReDoc |
+| `/admin/docs` | GET | Admin OpenAPI docs — requires admin-scoped key |
+
+## Key Management
+
+### Issuing keys
+
+```bash
+BASE="https://your-api-domain.com"
+ADMIN_TOKEN="your-admin-scoped-key"   # or API_BEARER_TOKEN during bootstrapping
+
+# Read-only key, restricted to one org
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "VoteBot dev", "scopes": ["read"], "restrictions": {"org_ids": ["800000001"]}}'
+
+# Read+write key with no restrictions
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "DDP-Sync pipeline", "scopes": ["read", "write"]}'
+```
+
+The response includes the plaintext key. **Store it securely — it will not be shown again.**
+
+### Listing and revoking
+
+```bash
+# List all keys
+curl -s $BASE/admin/keys -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Revoke a key
+curl -s -X DELETE $BASE/admin/keys/key_abc123 -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Rotate a key (24h grace window on old key)
+curl -s -X POST $BASE/admin/keys/key_abc123/rotate \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"grace_hours": 24}'
+```
+
+### Key store behavior
+
+- **Revocation latency:** Revocation takes effect immediately in the running process. Other instances pick up changes within 60 seconds (in-memory TTL cache). For immediate cross-instance propagation, call `POST /admin/reload`.
+- **`last_used_at`:** Tracked in memory and flushed to Secrets Manager on graceful shutdown. This is a best-effort operational metric — `SIGKILL` or OOM kills will drop in-memory updates.
+- **Secrets Manager size limit:** The `api_keys` array lives in the existing secret alongside org credentials. At ~400 bytes per key entry, ~100+ keys are supported before approaching the 64KB limit. If key volume grows significantly, `api_keys` can be moved to a dedicated secret.
+- **Single-worker requirement:** The key store's Secrets Manager read-modify-write is atomic only within a single uvicorn worker. Do not add `--workers` or scale to multiple instances without adding an `asyncio.Lock` around `_secrets_manager_update` in `app/services/key_store.py`.
 
 ## Configuration
 
@@ -152,8 +249,8 @@ Common paths: `/votebot/sync/unified` (trigger sync), `/votebot/sync/unified/sta
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_BEARER_TOKEN` | Bearer token for full write access | (required) |
-| `API_READ_ONLY_TOKEN` | Bearer token for read-only access (optional) | (disabled if unset) |
+| `API_BEARER_TOKEN` | Fallback write token (retire after issuing managed keys) | (optional) |
+| `API_READ_ONLY_TOKEN` | Fallback read token (retire after issuing managed keys) | (optional) |
 | `AWS_SECRET_NAME` | Secrets Manager secret name | `ddp-api/org-credentials` |
 | `AWS_REGION` | AWS region | `us-east-1` |
 | `LOCAL_CONFIG_PATH` | Path to local config file | `config.local.json` |
@@ -191,15 +288,16 @@ Credentials are stored in AWS Secrets Manager. The secret should contain:
   "votebot_api_key": "your-votebot-api-key",
   "webflow_api_token": "your-webflow-api-token",
   "webflow_bills_collection_id": "your-bills-collection-id",
-  "webflow_orgs_collection_id": "your-orgs-collection-id"
+  "webflow_orgs_collection_id": "your-orgs-collection-id",
+  "api_keys": []
 }
 ```
 
-**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. Each org only needs its own `brevo_list_id`. Per-org values override root-level if specified. Webflow keys can also be set via environment variables instead of the config file.
+**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. `api_keys` starts as an empty array and is populated via `POST /admin/keys` after deployment.
 
 ### Option 2: Local Config File (Development)
 
-Copy `config.local.example.json` to `config.local.json` and fill in credentials.
+Copy `config.local.example.json` to `config.local.json` and fill in credentials. Key issuance via `POST /admin/keys` in dev mode writes back to `config.local.json`.
 
 ## Running
 
@@ -227,15 +325,15 @@ uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
 ### Production
 
 ```bash
-# Ensure EC2 instance has IAM role with Secrets Manager access
-uvicorn app.main:app --host 0.0.0.0 --port 5000
+# Ensure EC2 instance has IAM role with Secrets Manager access (GetSecretValue + PutSecretValue)
+uvicorn app.main:app --host 0.0.0.0 --port 5000 --workers 1
 ```
 
 The server runs on `http://0.0.0.0:5000`.
 
-### Systemd Service
+> **Important:** Always run with `--workers 1`. The key store's Secrets Manager read-modify-write is atomic only within a single uvicorn worker. Multiple workers introduce a silent lost-update race.
 
-Update your systemd service file to use uvicorn:
+### Systemd Service
 
 ```ini
 [Unit]
@@ -246,8 +344,9 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/path/to/DDP-API
 Environment="PATH=/path/to/venv/bin"
-ExecStart=/path/to/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 5000
+ExecStart=/path/to/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5000 --workers 1
 Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
@@ -255,14 +354,12 @@ WantedBy=multi-user.target
 
 ## Testing
 
-Run the test suite:
-
 ```bash
 # Run all tests
 pytest tests/ -v
 
-# Run only VoteBot proxy tests
-pytest tests/test_votebot.py -v
+# Run only admin/key management tests
+pytest tests/test_admin.py -v
 
 # Run only Webflow tests
 pytest tests/test_webflow.py -v
@@ -271,8 +368,9 @@ pytest tests/test_webflow.py -v
 ## API Documentation
 
 Once running, interactive API documentation is available at:
-- Swagger UI: `http://localhost:5000/docs`
-- ReDoc: `http://localhost:5000/redoc`
+- **Public Swagger UI:** `http://localhost:5000/docs` — shows all endpoints except admin
+- **Public ReDoc:** `http://localhost:5000/redoc`
+- **Admin Swagger UI:** `http://localhost:5000/admin/docs` — requires an admin-scoped key; shows key management endpoints
 
 ## AWS Secrets Manager Setup
 
@@ -281,7 +379,7 @@ Once running, interactive API documentation is available at:
 ```bash
 aws secretsmanager create-secret \
   --name ddp-api/org-credentials \
-  --description "DDP-API organization credentials" \
+  --description "DDP-API organization credentials and API keys" \
   --secret-string '{
     "brevo_api_key": "xkeysib-...",
     "blacklist": [],
@@ -295,20 +393,14 @@ aws secretsmanager create-secret \
       }
     ],
     "zapier_webhook_url": "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
-    "ddp_sync_api_key": "your-ddp-sync-api-key"
+    "ddp_sync_api_key": "your-ddp-sync-api-key",
+    "api_keys": []
   }'
 ```
 
-Or create via AWS Console:
-1. Go to **AWS Secrets Manager** → **Store a new secret**
-2. Select **Other type of secret**
-3. Choose **Plaintext** tab and paste your JSON config
-4. Name it `ddp-api/org-credentials`
-5. Complete the wizard (no rotation needed)
-
 ### 2. Grant EC2 Instance Access
 
-Create an IAM policy:
+Create an IAM policy (note: `PutSecretValue` is required for key issuance and revocation):
 
 ```json
 {
@@ -317,7 +409,8 @@ Create an IAM policy:
     {
       "Effect": "Allow",
       "Action": [
-        "secretsmanager:GetSecretValue"
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue"
       ],
       "Resource": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ddp-api/org-credentials*"
     }
@@ -350,19 +443,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Update Environment Variables
+### 3. Update Systemd Service
 
-Add VoteBot configuration to `.env`:
-
-```bash
-echo "VOTEBOT_SERVICE_URL=http://localhost:8000" >> .env
-echo "VOTEBOT_WS_URL=ws://localhost:8000/ws/chat" >> .env
-echo "VOTEBOT_API_KEY=your-votebot-api-key" >> .env
-```
-
-### 4. Update Systemd Service
-
-Edit the service file to use uvicorn instead of Flask:
+Ensure `--workers 1` is present in `ExecStart`:
 
 ```bash
 sudo nano /etc/systemd/system/ddp-api.service
@@ -377,7 +460,7 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/path/to/DDP-API
 Environment="PATH=/path/to/DDP-API/venv/bin"
-ExecStart=/path/to/DDP-API/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5000
+ExecStart=/path/to/DDP-API/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5000 --workers 1
 Restart=always
 RestartSec=3
 
@@ -385,28 +468,19 @@ RestartSec=3
 WantedBy=multi-user.target
 ```
 
-Reload and restart:
-
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart ddp-api
 sudo systemctl status ddp-api
 ```
 
-### 5. Update Nginx Configuration
-
-Edit your nginx config to add WebSocket support:
-
-```bash
-sudo nano /etc/nginx/sites-available/ddp-api
-```
+### 4. Update Nginx Configuration
 
 ```nginx
 server {
     listen 80;
     server_name your-domain.com;
 
-    # Standard HTTP endpoints
     location / {
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host $host;
@@ -415,7 +489,6 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket support for /votebot/ws
     location /votebot/ws {
         proxy_pass http://127.0.0.1:5000;
         proxy_http_version 1.1;
@@ -423,39 +496,58 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_read_timeout 86400;  # 24 hours for long-lived connections
+        proxy_read_timeout 86400;
     }
 }
 ```
 
-Test and reload nginx:
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 5. Bootstrap Managed Keys
+
+After deploying, issue managed keys using the existing `API_BEARER_TOKEN`:
 
 ```bash
-sudo nginx -t
-sudo systemctl reload nginx
+BASE="https://your-domain.com"
+BOOTSTRAP="$API_BEARER_TOKEN"
+
+# Admin key for operators
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $BOOTSTRAP" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Ops admin", "scopes": ["admin"]}'
+
+# Write key for DDP-Sync
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $BOOTSTRAP" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "DDP-Sync pipeline", "scopes": ["read", "write"]}'
+
+# Read-only key for VoteBot dev (org-restricted)
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $BOOTSTRAP" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "VoteBot dev", "scopes": ["read"], "restrictions": {"org_ids": ["800000001"]}}'
 ```
+
+Once all callers have migrated to managed keys, remove `API_BEARER_TOKEN` and `API_READ_ONLY_TOKEN` from `.env` and restart the service.
 
 ### 6. Verify Deployment
 
 ```bash
-# Check service status
 sudo systemctl status ddp-api
-
-# View logs
 sudo journalctl -u ddp-api -f
-
-# Test endpoints
 curl http://localhost:5000/health
 curl https://your-domain.com/health
 ```
 
 ### Rollback (if needed)
 
-If issues arise, revert to a previous commit:
-
 ```bash
 cd /path/to/DDP-API
-git log --oneline -5     # Find the last known-good commit
+git log --oneline -5
 git checkout <commit>
 sudo systemctl restart ddp-api
 ```

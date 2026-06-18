@@ -172,43 +172,8 @@ async def compare_users(data: dict, token: str = Depends(read_auth)):
         blacklist = set()
 
     # Fetch voter list from Voatz
-    voatz_base = os.getenv("VOATZ_API_BASE_URL", "https://api.voatz.com")
-    users_list_url = f"{voatz_base}/voatz/customers/delegate/signups/byorg"
-    headers_voatz = {
-        "Accept-Encoding": "identity",
-        "Content-Type": "application/json",
-        "Origin": os.getenv("VOATZ_API_ORIGIN", voatz_base),
-        "WS": ws_token,
-        "Csrf-Token": csrf_token,
-        "Cookie": f"WS={ws_token}; Csrf-Token={csrf_token}",
-    }
-
-    users = []
-    min_id = None
-
-    while True:
-        payload = {"organizationId": int(organization_id), "limit": 1000}
-        if min_id:
-            payload["minId"] = min_id
-
-        try:
-            resp = requests.post(users_list_url, headers=headers_voatz, json=payload, timeout=60)
-        except requests.RequestException as e:
-            logger.error(f"Voatz API request failed: {e}")
-            raise HTTPException(status_code=502, detail=f"Voatz API request failed: {e}")
-
-        if resp.status_code != 200:
-            return {
-                "status": "error",
-                "message": "Voatz API failed",
-                "text": resp.text,
-            }
-
-        result = resp.json().get("result", [])
-        if not result:
-            break
-        users.extend(result)
-        min_id = resp.json().get("minId")
+    from app.services.voatz import fetch_users
+    users = fetch_users(ws_token, csrf_token, organization_id)
 
     def flatten_user(user):
         flattened = {

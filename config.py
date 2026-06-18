@@ -9,6 +9,7 @@ Loads organization credentials from:
 import json
 import os
 import logging
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 LOCAL_CONFIG_PATH = os.getenv("LOCAL_CONFIG_PATH", "config.local.json")
 
 
-def load_from_secrets_manager() -> dict | None:
+def load_from_secrets_manager() -> Optional[dict]:
     """Load configuration from AWS Secrets Manager."""
     try:
         import boto3
@@ -48,7 +49,7 @@ def load_from_secrets_manager() -> dict | None:
     return None
 
 
-def load_from_local_file() -> dict | None:
+def load_from_local_file() -> Optional[dict]:
     """Load configuration from local JSON file."""
     if not os.path.exists(LOCAL_CONFIG_PATH):
         logger.warning(f"Local config file not found: {LOCAL_CONFIG_PATH}")

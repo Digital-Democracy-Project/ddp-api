@@ -6,6 +6,7 @@ structured results.  All endpoints require Bearer token auth.
 
 import logging
 import os
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -66,7 +67,7 @@ def _get_client():
     return WebflowClient(token)
 
 
-def _resolve_bills_collection(override: str | None) -> str:
+def _resolve_bills_collection(override: Optional[str]) -> str:
     if override:
         return override
     cid = _get_webflow_config()["bills_collection_id"]
@@ -75,7 +76,7 @@ def _resolve_bills_collection(override: str | None) -> str:
     return cid
 
 
-def _resolve_orgs_collection(override: str | None) -> str:
+def _resolve_orgs_collection(override: Optional[str]) -> str:
     if override:
         return override
     cid = _get_webflow_config()["orgs_collection_id"]
