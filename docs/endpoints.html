@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDP-API Endpoints</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f8f9fa;
+    color: #1a1a2e;
+    padding: 32px 24px 64px;
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    color: #666;
+    font-size: 13px;
+    margin-bottom: 32px;
+  }
+
+  /* ── legend ── */
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+    align-items: center;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: #444;
+  }
+
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  /* ── scope sections ── */
+  .scope-section {
+    margin-bottom: 40px;
+  }
+
+  .scope-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .scope-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .scope-label {
+    font-size: 13px;
+    color: #666;
+  }
+
+  /* ── card grid ── */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px 18px;
+    border: 1px solid #e8eaed;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  .card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #888;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .backend-tag {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  /* ── individual endpoint rows ── */
+  .endpoint {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #f2f2f2;
+    font-size: 13px;
+  }
+
+  .endpoint:last-child { border-bottom: none; }
+
+  .method {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    min-width: 46px;
+    text-align: center;
+    flex-shrink: 0;
+    letter-spacing: 0.2px;
+  }
+
+  .path {
+    font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+    font-size: 12.5px;
+    color: #1a1a2e;
+    word-break: break-all;
+  }
+
+  .path .param { color: #888; }
+
+  .note {
+    font-size: 11px;
+    color: #999;
+    margin-left: auto;
+    flex-shrink: 0;
+    font-style: italic;
+  }
+
+  /* ── colours per scope ── */
+
+  /* no auth — slate */
+  .scope-none .scope-badge { background: #eef0f3; color: #555; }
+  .scope-none .card { border-left: 3px solid #c8cdd5; }
+
+  /* admin — violet */
+  .scope-admin .scope-badge { background: #f0ebff; color: #6b3fa0; }
+  .scope-admin .card { border-left: 3px solid #9b6dff; }
+  .scope-admin .backend-tag { background: #f0ebff; color: #7c4dcc; }
+
+  /* read — teal */
+  .scope-read .scope-badge { background: #e6f7f5; color: #1a7f6e; }
+  .scope-read .card { border-left: 3px solid #2ec4b6; }
+  .scope-read .backend-tag { background: #e6f7f5; color: #1a7f6e; }
+
+  /* write — amber */
+  .scope-write .scope-badge { background: #fff4e6; color: #b85c00; }
+  .scope-write .card { border-left: 3px solid #ff9f1c; }
+  .scope-write .backend-tag { background: #fff4e6; color: #b85c00; }
+
+  /* ── method pill colours ── */
+  .GET    { background: #e8f5e9; color: #2e7d32; }
+  .POST   { background: #e3f2fd; color: #1565c0; }
+  .PUT    { background: #fff3e0; color: #e65100; }
+  .DELETE { background: #fce4ec; color: #c62828; }
+  .WS     { background: #f3e5f5; color: #6a1b9a; }
+
+  .new-badge {
+    font-size: 10px;
+    background: #fff9c4;
+    color: #f57f17;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-weight: 600;
+    margin-left: 4px;
+  }
+
+  /* ── legend dots match scope colours ── */
+  .dot-none  { background: #c8cdd5; }
+  .dot-admin { background: #9b6dff; }
+  .dot-read  { background: #2ec4b6; }
+  .dot-write { background: #ff9f1c; }
+</style>
+</head>
+<body>
+
+<h1>DDP-API — Endpoint Reference</h1>
+<p class="subtitle">Auth gateway and proxy for the Digital Democracy Project &nbsp;·&nbsp; :5000</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot dot-none"></div> No auth required</div>
+  <div class="legend-item"><div class="legend-dot dot-admin"></div> Admin scope</div>
+  <div class="legend-item"><div class="legend-dot dot-read"></div> Read scope (write also accepted)</div>
+  <div class="legend-item"><div class="legend-dot dot-write"></div> Write scope only</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ NO AUTH -->
+<div class="scope-section scope-none">
+  <div class="scope-header">
+    <span class="scope-badge">No Auth</span>
+    <span class="scope-label">Open to all callers</span>
+  </div>
+  <div class="card-grid">
+
+    <div class="card">
+      <div class="card-title">Health &amp; Info <span class="backend-tag">internal</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/health</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Public Docs <span class="backend-tag">internal</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/docs</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/redoc</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/openapi.json</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">VoteBot WebSocket <span class="backend-tag">VoteBot :8000</span></div>
+      <div class="endpoint">
+        <span class="method WS">WS</span>
+        <span class="path">/votebot/ws</span>
+        <span class="note">session_id param</span>
+      </div>
+      <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
+        <span style="font-size:11px; color:#888; font-style:italic;">
+          Public — browsers can't set auth headers on WebSocket connections.<br>
+          Proxy injects VoteBot API key on the outbound leg.
+        </span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ ADMIN -->
+<div class="scope-section scope-admin">
+  <div class="scope-header">
+    <span class="scope-badge">Admin</span>
+    <span class="scope-label">Key management — requires <code>ddp-admin-…</code> token</span>
+  </div>
+  <div class="card-grid">
+
+    <div class="card">
+      <div class="card-title">API Key Management <span class="backend-tag">Secrets Manager</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/admin/keys</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/admin/keys</span></div>
+      <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/admin/keys/<span class="param">{key_id}</span></span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/admin/keys/<span class="param">{key_id}</span>/rotate</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/admin/reload</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Admin Docs <span class="backend-tag">internal</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/admin/docs</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/admin/openapi.json</span></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ READ -->
+<div class="scope-section scope-read">
+  <div class="scope-header">
+    <span class="scope-badge">Read</span>
+    <span class="scope-label">Accepted by <code>ddp-ro-…</code> and <code>ddp-rw-…</code> tokens</span>
+  </div>
+  <div class="card-grid">
+
+    <div class="card">
+      <div class="card-title">Voatz — Passthrough <span class="backend-tag">Voatz API</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/get_tokens</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/get_users</span><span class="note">?mode=diff_only</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/get_events</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">
+        Voatz — Pre-auth Wrappers <span class="backend-tag">Voatz API</span>
+      </div>
+      <div class="endpoint">
+        <span class="method GET">GET</span>
+        <span class="path">/voatz/users/<span class="param">{org_id}</span></span>
+        <span class="new-badge">NEW</span>
+      </div>
+      <div class="endpoint">
+        <span class="method GET">GET</span>
+        <span class="path">/voatz/events/<span class="param">{org_id}</span></span>
+        <span class="new-badge">NEW</span>
+      </div>
+      <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
+        <span style="font-size:11px; color:#888; font-style:italic;">
+          Server fetches Voatz tokens from config.<br>
+          Caller never needs Voatz credentials.<br>
+          Per-org restriction enforced by key scope.
+        </span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Brevo — User Diff <span class="backend-tag">Voatz + Brevo</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/user_updates</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">VoteBot Chat <span class="backend-tag">VoteBot :8000</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/votebot/chat</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/votebot/chat/stream</span><span class="note">SSE</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">DDP-Sync — Read <span class="backend-tag">DDP-Sync :8001</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/trigger/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/votebot/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/votebot/trigger/<span class="param">{path}</span></span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">OpenStates Proxy <span class="backend-tag">OpenStates :8002</span></div>
+      <div class="endpoint"><span class="method GET">GET</span><span class="path">/openstates/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/openstates/<span class="param">{path}</span></span></div>
+      <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
+        <span style="font-size:11px; color:#888; font-style:italic;">Mac Studio via WireGuard.<br>Internal UUID key injected automatically.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Webflow — Check <span class="backend-tag">Webflow CMS</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/check/org-missing-fields</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/check/duplicates</span></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ WRITE -->
+<div class="scope-section scope-write">
+  <div class="scope-header">
+    <span class="scope-badge">Write</span>
+    <span class="scope-label">Requires <code>ddp-rw-…</code> token only</span>
+  </div>
+  <div class="card-grid">
+
+    <div class="card">
+      <div class="card-title">Voatz — Mutating <span class="backend-tag">Voatz API</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/create_event</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Brevo — Segment Update <span class="backend-tag">Brevo API</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/update_segment_attribute</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">VoteBot — Feedback <span class="backend-tag">VoteBot :8000</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/votebot/feedback</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">DDP-Sync — Write <span class="backend-tag">DDP-Sync :8001</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method PUT">PUT</span><span class="path">/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/trigger/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/votebot/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method PUT">PUT</span><span class="path">/votebot/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/votebot/sync/<span class="param">{path}</span></span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/votebot/trigger/<span class="param">{path}</span></span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Webflow — Fill <span class="backend-tag">Webflow CMS</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/fill/gov-url</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/fill/session-code</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/fill/map-url</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Webflow — Sync <span class="backend-tag">Webflow CMS</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/sync/bill-org</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/sync/org-about-fields</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Webflow — Resolve &amp; Delete <span class="backend-tag">Webflow CMS</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/resolve/duplicate-group</span></div>
+      <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/webflow/items/<span class="param">{item_id}</span></span></div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
