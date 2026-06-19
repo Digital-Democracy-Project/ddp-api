@@ -1,6 +1,6 @@
 # DDP-API Key Management Plan
 
-> **Status:** APPROVED — ready to implement  
+> **Status:** DEPLOYED — live on EC2 as of 2026-06-19  
 > **Scope:** API key issuance, scoping, storage, admin endpoints, Voatz service layer, and pre-authenticated wrapper endpoints
 
 ---

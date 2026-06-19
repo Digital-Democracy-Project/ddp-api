@@ -306,8 +306,10 @@ Copy `config.local.example.json` to `config.local.json` and fill in credentials.
 ```bash
 pip install -r requirements.txt
 
-# Install the webflow_cms package (required for Webflow CMS endpoints)
+# webflow_cms is not on PyPI — install separately from the source repo:
 pip install -e /path/to/FillWebflowFields
+# or directly from GitHub:
+pip install git+https://github.com/VotingRightsBrigade/FillWebflowFields.git
 ```
 
 ### Development
@@ -441,6 +443,7 @@ git pull origin main
 ```bash
 source venv/bin/activate
 pip install -r requirements.txt
+# Note: webflow_cms is pre-installed on the server — no action needed unless updating it
 ```
 
 ### 3. Update Systemd Service
