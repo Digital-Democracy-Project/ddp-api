@@ -346,13 +346,26 @@ After=network.target
 User=ubuntu
 WorkingDirectory=/path/to/DDP-API
 Environment="PATH=/path/to/venv/bin"
+# Secrets (API_BEARER_TOKEN, etc.) via an EnvironmentFile with chmod 600 — NOT inline
+# Environment= lines (don't put secrets in the unit; it's readable).
+EnvironmentFile=/etc/ddp-api/ddp-api.env
 ExecStart=/path/to/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 5000 --workers 1
 Restart=always
 RestartSec=3
+# Logs go to journald — view with `journalctl -u ddp-api`. Do NOT use StandardOutput=file:
+# (it silently desyncs across restarts and once hid a key-issuance error for months).
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **Logs & a common gotcha.** ddp-api logs to stdout/stderr → journald: `journalctl -u ddp-api -n 50`.
+> If `POST /admin/keys` returns **500** (`RuntimeError: Cannot persist key store: Secrets Manager
+> unavailable…`), the EC2 instance role is missing **`secretsmanager:PutSecretValue`** — reads work
+> with `GetSecretValue` alone, but **issuance/revocation/rotation need the write** (see the IAM
+> policy above). Add it on `…:secret:ddp-api/org-credentials*`; no restart needed.
 
 ## Testing
 
