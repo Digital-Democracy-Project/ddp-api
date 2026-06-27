@@ -116,10 +116,14 @@ def key_store_with_test_keys(tmp_path, monkeypatch):
     import config as cfg_module
     import app.services.key_store as ks_module
 
-    # config.LOCAL_CONFIG_PATH is a module-level constant (evaluated at import
-    # time), so monkeypatch.setenv alone won't update it. Set it directly.
-    original_path         = cfg_module.LOCAL_CONFIG_PATH
-    cfg_module.LOCAL_CONFIG_PATH = str(config_file)
+    # These are module-level constants (evaluated at import time), so
+    # monkeypatch.setenv alone won't update them. Set them directly. The key
+    # store reads api_keys from API_KEYS_LOCAL_PATH; the org config (get_config)
+    # reads LOCAL_CONFIG_PATH. The seeded file carries both, so point both at it.
+    original_path           = cfg_module.LOCAL_CONFIG_PATH
+    original_keys_path       = cfg_module.API_KEYS_LOCAL_PATH
+    cfg_module.LOCAL_CONFIG_PATH  = str(config_file)
+    cfg_module.API_KEYS_LOCAL_PATH = str(config_file)
     cfg_module._config    = None
     ks_module._key_store  = None
 
@@ -130,6 +134,7 @@ def key_store_with_test_keys(tmp_path, monkeypatch):
     }
 
     # Cleanup
-    cfg_module.LOCAL_CONFIG_PATH = original_path
+    cfg_module.LOCAL_CONFIG_PATH  = original_path
+    cfg_module.API_KEYS_LOCAL_PATH = original_keys_path
     cfg_module._config    = None
     ks_module._key_store  = None

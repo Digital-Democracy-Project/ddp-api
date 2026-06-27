@@ -1,0 +1,15 @@
+{
+  "api_keys": [
+    {
+      "id": "key_example",
+      "name": "Local dev read-only",
+      "key_hash": "<sha256 of your test key — run: python3 -c \"import hashlib; print(hashlib.sha256(b'ddp-ro-your-key-here').hexdigest())\">",
+      "prefix": "ddp-ro",
+      "scopes": ["read"],
+      "restrictions": {},
+      "created_at": "2026-06-17T00:00:00Z",
+      "expires_at": null,
+      "last_used_at": null
+    }
+  ]
+}
