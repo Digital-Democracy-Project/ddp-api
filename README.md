@@ -441,9 +441,13 @@ Attach this policy to your EC2 instance's IAM role.
 **Key-store secret (`ddp-api/api-keys`).** API keys live in their own secret —
 decoupled from the Voatz `org-credentials` blob (`config.API_KEYS_SECRET_NAME`,
 default `ddp-api/api-keys`; see `PLAN_key_management.md` addendum 2026-06-27).
-Create it once, seeded from any keys currently in `org-credentials`:
+The EC2 role above only needs `GetSecretValue`+`PutSecretValue` on this secret at
+runtime — it does **not** get `CreateSecret`. Create the secret **once** with an
+**admin identity** (AWS Console, or an admin CLI profile — not the EC2 instance
+role), seeded from any keys currently in `org-credentials`:
 
 ```bash
+# Run with an admin profile that has CreateSecret + GetSecretValue on org-credentials.
 KEYS=$(aws secretsmanager get-secret-value --secret-id ddp-api/org-credentials \
         --region us-east-1 --query SecretString --output text \
         | jq -c '{api_keys: (.api_keys // [])}')
@@ -451,8 +455,8 @@ aws secretsmanager create-secret --name ddp-api/api-keys --region us-east-1 \
   --secret-string "$KEYS"
 ```
 
-A missing-`PutSecretValue` write now **fails loudly** (500 on issue) instead of
-silently falling back to a host-local file.
+A missing-`PutSecretValue` write at runtime now **fails loudly** (500 on issue)
+instead of silently falling back to a host-local file.
 
 ### 3. Verify Access
 
