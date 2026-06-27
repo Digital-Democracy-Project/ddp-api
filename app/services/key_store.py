@@ -1,4 +1,10 @@
-"""In-memory API key store backed by AWS Secrets Manager.
+"""In-memory API key store backed by a dedicated AWS Secrets Manager secret.
+
+Source of truth is the dedicated key-store secret (config.API_KEYS_SECRET_NAME,
+default `ddp-api/api-keys`), NOT the Voatz org-credentials secret. This keeps key
+issuance/revocation isolated from org-credential writes (which would otherwise
+clobber the api_keys array on every read-modify-write of the shared blob) and
+removes the dependency on get_config()'s required `organizations` field.
 
 Concurrency model: _secrets_manager_update uses synchronous boto3 intentionally.
 Synchronous boto3 calls block the entire asyncio event loop thread, so no other
@@ -60,20 +66,12 @@ class KeyStore:
         self._loaded_at = None
 
     def _load_from_config(self):
-        try:
-            from config import get_config
-            config = get_config()
-        except RuntimeError as e:
-            # No Secrets Manager access and no local config file — start empty.
-            # Auth falls back to env-var tokens (API_BEARER_TOKEN / API_READ_ONLY_TOKEN).
-            logger.warning("Key store: config unavailable (%s) — starting with empty key list", e)
-            with self._lock:
-                self._by_hash   = {}
-                self._by_id     = {}
-                self._loaded_at = datetime.now(timezone.utc)
-            return
+        # Load from the dedicated key-store secret (not get_config()), so the key
+        # store has no dependency on the Voatz org-credentials blob. On any failure
+        # we start empty — auth then falls back to env-var tokens
+        # (API_BEARER_TOKEN / API_READ_ONLY_TOKEN).
         by_hash, by_id = {}, {}
-        for entry in config.get("api_keys", []):
+        for entry in _load_key_entries():
             key = ApiKey(entry)
             by_hash[key.key_hash] = key
             by_id[key.id]         = key
@@ -216,47 +214,96 @@ class KeyStore:
             logger.error("Failed to flush last_used_at: %s", e)
 
 
-def _persist_update(transform):
+def _load_key_entries() -> list:
+    """Return the raw api_keys list from the dedicated key-store secret.
+
+    Secrets Manager (API_KEYS_SECRET_NAME) first, then the local file
+    (API_KEYS_LOCAL_PATH) for development. Returns [] on any failure so the
+    caller starts empty and auth falls back to env-var tokens.
     """
-    Read-modify-write: apply transform to the api_keys list and persist.
+    from config import API_KEYS_SECRET_NAME, AWS_REGION, API_KEYS_LOCAL_PATH
 
-    Tries AWS Secrets Manager first (production). Falls back to the local
-    config file (development / tests). Mirrors the load strategy in config.py.
-
-    Uses synchronous boto3 intentionally — see module docstring for concurrency
-    model and the asyncio.Lock requirement if ever refactored to async.
-    """
-    from config import AWS_SECRET_NAME, AWS_REGION, LOCAL_CONFIG_PATH
-
-    # --- Production: AWS Secrets Manager ---
     try:
         import boto3
         from botocore.exceptions import NoCredentialsError, ClientError
 
         client = boto3.client("secretsmanager", region_name=AWS_REGION)
-        resp   = client.get_secret_value(SecretId=AWS_SECRET_NAME)
+        resp   = client.get_secret_value(SecretId=API_KEYS_SECRET_NAME)
+        return json.loads(resp["SecretString"]).get("api_keys", [])
+    except (NoCredentialsError, ClientError) as e:
+        logger.warning("Key store: secret %s unavailable (%s) — trying local file %s",
+                       API_KEYS_SECRET_NAME, e, API_KEYS_LOCAL_PATH)
+    except Exception as e:
+        logger.warning("Key store: secret load failed (%s) — trying local file %s",
+                       e, API_KEYS_LOCAL_PATH)
+
+    if os.path.exists(API_KEYS_LOCAL_PATH):
+        try:
+            with open(API_KEYS_LOCAL_PATH) as f:
+                return json.load(f).get("api_keys", [])
+        except Exception as e:
+            logger.error("Key store: local file %s unreadable (%s)", API_KEYS_LOCAL_PATH, e)
+
+    logger.warning("Key store: no source available — starting empty (env-var token fallback only)")
+    return []
+
+
+def _persist_update(transform):
+    """
+    Read-modify-write: apply transform to the api_keys list and persist to the
+    dedicated key-store secret (API_KEYS_SECRET_NAME).
+
+    Secrets Manager is the production store; the local file (API_KEYS_LOCAL_PATH)
+    is a development fallback used ONLY when there are no AWS credentials or the
+    secret does not exist. A permission failure on the write (e.g. missing
+    secretsmanager:PutSecretValue) is raised, NOT silently forked to a local file:
+    a silent fallback in prod would let a key validate in memory yet never reach
+    Secrets Manager, then vanish on the next restart — fail loudly instead.
+
+    Uses synchronous boto3 intentionally — see module docstring for concurrency
+    model and the asyncio.Lock requirement if ever refactored to async.
+    """
+    from config import API_KEYS_SECRET_NAME, AWS_REGION, API_KEYS_LOCAL_PATH
+
+    # --- Production: dedicated Secrets Manager secret ---
+    try:
+        import boto3
+        from botocore.exceptions import NoCredentialsError, ClientError
+
+        client = boto3.client("secretsmanager", region_name=AWS_REGION)
+        resp   = client.get_secret_value(SecretId=API_KEYS_SECRET_NAME)
         secret = json.loads(resp["SecretString"])
         secret["api_keys"] = transform(secret.get("api_keys", []))
         client.put_secret_value(
-            SecretId=AWS_SECRET_NAME,
+            SecretId=API_KEYS_SECRET_NAME,
             SecretString=json.dumps(secret),
         )
         return
-    except (NoCredentialsError, ClientError) as e:
-        logger.warning("Secrets Manager unavailable, falling back to local file: %s", e)
-    except Exception as e:
-        logger.warning("Secrets Manager update failed, falling back to local file: %s", e)
+    except NoCredentialsError:
+        logger.warning("Key store: no AWS credentials — falling back to local file %s", API_KEYS_LOCAL_PATH)
+    except ImportError:
+        logger.warning("Key store: boto3 unavailable — falling back to local file %s", API_KEYS_LOCAL_PATH)
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code != "ResourceNotFoundException":
+            # AccessDenied / throttling / etc. — a real prod misconfiguration.
+            # Surface it instead of silently writing to an ephemeral local file.
+            logger.error("Key store: Secrets Manager write to %s failed (%s) — "
+                         "NOT falling back; fix IAM/secret access", API_KEYS_SECRET_NAME, code or e)
+            raise
+        logger.warning("Key store: secret %s not found — falling back to local file %s",
+                       API_KEYS_SECRET_NAME, API_KEYS_LOCAL_PATH)
 
-    # --- Development: local config file ---
-    if not os.path.exists(LOCAL_CONFIG_PATH):
+    # --- Development: local file (no creds / no boto3 / secret absent only) ---
+    if not os.path.exists(API_KEYS_LOCAL_PATH):
         raise RuntimeError(
-            f"Cannot persist key store: Secrets Manager unavailable and "
-            f"no local config file at {LOCAL_CONFIG_PATH!r}"
+            f"Cannot persist key store: dedicated secret unavailable and "
+            f"no local file at {API_KEYS_LOCAL_PATH!r}"
         )
-    with open(LOCAL_CONFIG_PATH) as f:
+    with open(API_KEYS_LOCAL_PATH) as f:
         secret = json.load(f)
     secret["api_keys"] = transform(secret.get("api_keys", []))
-    with open(LOCAL_CONFIG_PATH, "w") as f:
+    with open(API_KEYS_LOCAL_PATH, "w") as f:
         json.dump(secret, f, indent=2)
 
 

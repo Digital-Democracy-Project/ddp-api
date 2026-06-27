@@ -17,18 +17,5 @@
   "votebot_api_key": "your-votebot-api-key",
   "webflow_api_token": "your-webflow-api-token",
   "webflow_bills_collection_id": "your-bills-collection-id",
-  "webflow_orgs_collection_id": "your-orgs-collection-id",
-  "api_keys": [
-    {
-      "id": "key_example",
-      "name": "Local dev read-only",
-      "key_hash": "<sha256 of your test key — run: python3 -c \"import hashlib; print(hashlib.sha256(b'ddp-ro-your-key-here').hexdigest())\">",
-      "prefix": "ddp-ro",
-      "scopes": ["read"],
-      "restrictions": {},
-      "created_at": "2026-06-17T00:00:00Z",
-      "expires_at": null,
-      "last_used_at": null
-    }
-  ]
+  "webflow_orgs_collection_id": "your-orgs-collection-id"
 }

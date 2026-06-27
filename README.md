@@ -293,7 +293,7 @@ Credentials are stored in AWS Secrets Manager. The secret should contain:
 }
 ```
 
-**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. `api_keys` starts as an empty array and is populated via `POST /admin/keys` after deployment.
+**Note:** `brevo_api_key` and `blacklist` are shared at the root level across all organizations. API keys are **no longer stored here** — they live in the dedicated `ddp-api/api-keys` secret (see "Key-store secret" under Grant EC2 Instance Access) and are populated via `POST /admin/keys` after deployment.
 
 ### Option 2: Local Config File (Development)
 
@@ -427,13 +427,36 @@ Create an IAM policy (note: `PutSecretValue` is required for key issuance and re
         "secretsmanager:GetSecretValue",
         "secretsmanager:PutSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ddp-api/org-credentials*"
+      "Resource": [
+        "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ddp-api/org-credentials*",
+        "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ddp-api/api-keys*"
+      ]
     }
   ]
 }
 ```
 
 Attach this policy to your EC2 instance's IAM role.
+
+**Key-store secret (`ddp-api/api-keys`).** API keys live in their own secret —
+decoupled from the Voatz `org-credentials` blob (`config.API_KEYS_SECRET_NAME`,
+default `ddp-api/api-keys`; see `PLAN_key_management.md` addendum 2026-06-27).
+The EC2 role above only needs `GetSecretValue`+`PutSecretValue` on this secret at
+runtime — it does **not** get `CreateSecret`. Create the secret **once** with an
+**admin identity** (AWS Console, or an admin CLI profile — not the EC2 instance
+role), seeded from any keys currently in `org-credentials`:
+
+```bash
+# Run with an admin profile that has CreateSecret + GetSecretValue on org-credentials.
+KEYS=$(aws secretsmanager get-secret-value --secret-id ddp-api/org-credentials \
+        --region us-east-1 --query SecretString --output text \
+        | jq -c '{api_keys: (.api_keys // [])}')
+aws secretsmanager create-secret --name ddp-api/api-keys --region us-east-1 \
+  --secret-string "$KEYS"
+```
+
+A missing-`PutSecretValue` write at runtime now **fails loudly** (500 on issue)
+instead of silently falling back to a host-local file.
 
 ### 3. Verify Access
 

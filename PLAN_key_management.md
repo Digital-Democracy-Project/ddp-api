@@ -5,6 +5,52 @@
 
 ---
 
+## Addendum (2026-06-27): dedicated key-store secret
+
+The key store now reads/writes a **dedicated** secret, `ddp-api/api-keys`
+(`config.API_KEYS_SECRET_NAME`), instead of co-locating `api_keys` inside the
+Voatz `ddp-api/org-credentials` blob. This is the "move to a separate dedicated
+secret" escape hatch flagged in the Operational Notes below, promoted from
+*optional* to *done* on **separation-of-concerns** grounds: API keys should not
+live in the Voatz org blob, where any read-modify-write of the org side risks
+clobbering the `api_keys` array, and where the key store inherited a dependency
+on `get_config()`'s required `organizations` field.
+
+(An earlier hypothesis that a 2026-06-25 read key had been *lost* to a silent
+local-file fallback proved **wrong** — that key was persisted correctly as a
+`key_hash`. The failing `curl` was sending a plaintext that didn't match the
+stored hash. This refactor is a cleanup, not an incident fix.)
+
+Changes:
+- `config.py` — new `API_KEYS_SECRET_NAME` (default `ddp-api/api-keys`) and
+  `API_KEYS_LOCAL_PATH` (default `api-keys.local.json`).
+- `key_store.py` — loads via `_load_key_entries()` from the dedicated secret
+  (no `get_config()` / `organizations` dependency); `_persist_update()` targets
+  the dedicated secret. A **permission** failure on the write (e.g. missing
+  `PutSecretValue`) now **raises** instead of silently falling back to a local
+  file — only "no AWS creds / secret absent / no boto3" fall back (dev).
+- New `api-keys.local.example.json`; `api_keys` removed from
+  `config.local.example.json`.
+
+**IAM:** the EC2 role needs `GetSecretValue` + `PutSecretValue` on
+`…:secret:ddp-api/api-keys*` (in addition to, not instead of, org-credentials).
+
+**Migration (run once):**
+```bash
+SRC=ddp-api/org-credentials; DST=ddp-api/api-keys; REGION=us-east-1
+# 1. Seed the new secret with any keys currently in org-credentials
+KEYS=$(aws secretsmanager get-secret-value --secret-id "$SRC" --region "$REGION" \
+        --query SecretString --output text | jq -c '{api_keys: (.api_keys // [])}')
+aws secretsmanager create-secret --name "$DST" --region "$REGION" --secret-string "$KEYS"
+# 2. Add IAM GetSecretValue+PutSecretValue on the $DST ARN to DDP-API-EC2-Role
+# 3. Deploy this code + restart ddp-api; confirm logs: "Key store loaded: N keys"
+# 4. Re-issue the OpenStates ddp-ro read key, verify its hash lands in $DST, then
+#    update DDP_OPENSTATES_BEARER_TOKEN in prod ddp-broker-py.
+# 5. (optional cleanup) remove the now-orphaned api_keys array from $SRC
+```
+
+---
+
 ## Decisions Log
 
 | # | Question | Decision |

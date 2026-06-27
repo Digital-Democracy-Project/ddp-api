@@ -20,6 +20,14 @@ AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 # Local fallback config path
 LOCAL_CONFIG_PATH = os.getenv("LOCAL_CONFIG_PATH", "config.local.json")
 
+# Dedicated API key-store secret — decoupled from org-credentials (the Voatz
+# org/credentials blob). The key store reads/writes ONLY this secret so a writer
+# managing the Voatz side can never clobber issued keys, and so the key store has
+# no dependency on get_config()'s required `organizations` field. The secret holds
+# a single top-level `api_keys` array.
+API_KEYS_SECRET_NAME = os.getenv("API_KEYS_SECRET_NAME", "ddp-api/api-keys")
+API_KEYS_LOCAL_PATH = os.getenv("API_KEYS_LOCAL_PATH", "api-keys.local.json")
+
 
 def load_from_secrets_manager() -> Optional[dict]:
     """Load configuration from AWS Secrets Manager."""
