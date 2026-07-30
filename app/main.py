@@ -31,6 +31,7 @@ from app.routes import voatz_router, brevo_router, votebot_router, webflow_route
 from app.routes.admin import router as admin_router
 from app.routes.ddp_sync_proxy import router as ddp_sync_router
 from app.routes.openstates_proxy import router as openstates_router
+from app.routes.broker_proxy import router as broker_router
 
 
 @asynccontextmanager
@@ -79,6 +80,9 @@ app.include_router(ddp_sync_router)
 
 # Local OpenStates api-v3 proxy
 app.include_router(openstates_router)
+
+# Production ddp-broker-py proxy
+app.include_router(broker_router)
 
 
 # ---------------------------------------------------------------------------
