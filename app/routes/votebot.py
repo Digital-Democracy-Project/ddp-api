@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 from fastapi.responses import StreamingResponse
 
 from app.middleware.auth import read_auth, write_auth
+from app.schemas.common import ChatRequest, FeedbackRequest
 from config import get_config
 
 logger = logging.getLogger(__name__)
@@ -45,19 +46,12 @@ def get_votebot_config() -> dict:
         }
 
 
-@router.post("/chat")
+@router.post("/chat", summary="Proxy a chat request to VoteBot")
 async def votebot_chat(
-    request: dict,
+    payload: ChatRequest,
     token: str = Depends(read_auth),
 ):
-    """
-    Proxy chat requests to VoteBot service.
-
-    Request body should contain:
-    - message: str
-    - session_id: str
-    - page_context: optional dict with type, url, title, etc.
-    """
+    """Proxy a synchronous chat request to the VoteBot service."""
     config = get_votebot_config()
 
     async with httpx.AsyncClient(
@@ -66,7 +60,9 @@ async def votebot_chat(
         timeout=60.0,
     ) as client:
         try:
-            response = await client.post("/votebot/v1/chat", json=request)
+            response = await client.post(
+                "/votebot/v1/chat", json=payload.model_dump(exclude_none=True)
+            )
 
             if response.status_code >= 400:
                 raise HTTPException(
@@ -84,19 +80,12 @@ async def votebot_chat(
             )
 
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", summary="Proxy a streaming chat request to VoteBot (SSE)")
 async def votebot_chat_stream(
-    request: dict,
+    payload: ChatRequest,
     token: str = Depends(read_auth),
 ):
-    """
-    Proxy streaming chat requests to VoteBot service with SSE passthrough.
-
-    Request body should contain:
-    - message: str
-    - session_id: str
-    - page_context: optional dict with type, url, title, etc.
-    """
+    """Proxy a streaming chat request to VoteBot with SSE passthrough."""
     config = get_votebot_config()
 
     async def stream_generator():
@@ -109,7 +98,7 @@ async def votebot_chat_stream(
                 async with client.stream(
                     "POST",
                     "/votebot/v1/chat/stream",
-                    json=request,
+                    json=payload.model_dump(exclude_none=True),
                 ) as response:
                     if response.status_code >= 400:
                         error_text = await response.aread()
@@ -134,20 +123,12 @@ async def votebot_chat_stream(
     )
 
 
-@router.post("/feedback")
+@router.post("/feedback", summary="Proxy a feedback submission to VoteBot")
 async def votebot_feedback(
-    request: dict,
+    payload: FeedbackRequest,
     token: str = Depends(write_auth),
 ):
-    """
-    Proxy feedback submissions to VoteBot service.
-
-    Request body should contain:
-    - session_id: str
-    - message_id: str
-    - feedback_type: str ("positive" or "negative")
-    - feedback_text: optional str
-    """
+    """Proxy a chat feedback submission (thumbs up/down + optional text) to VoteBot."""
     config = get_votebot_config()
 
     async with httpx.AsyncClient(
@@ -156,7 +137,9 @@ async def votebot_feedback(
         timeout=30.0,
     ) as client:
         try:
-            response = await client.post("/votebot/v1/chat/feedback", json=request)
+            response = await client.post(
+                "/votebot/v1/chat/feedback", json=payload.model_dump(exclude_none=True)
+            )
 
             if response.status_code >= 400:
                 raise HTTPException(

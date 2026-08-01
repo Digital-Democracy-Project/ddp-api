@@ -1,8 +1,10 @@
 """Admin endpoints for API key management.
 
-All endpoints require admin_auth. This router is registered with
-include_in_schema=False so admin routes never appear in the public /docs.
-They are documented separately at /admin/docs (also admin_auth protected).
+All endpoints require admin_auth. Excluded from the public /docs by
+public_openapi()'s path-prefix filter (app/main.py), not by this router --
+`include_in_schema=False` here would also hide these routes from
+admin_openapi(), leaving /admin/docs empty. They're documented separately
+at /admin/docs (also admin_auth protected).
 """
 
 import logging
@@ -21,7 +23,7 @@ from app.schemas.admin import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin", tags=["admin"], include_in_schema=False)
+router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.post("/keys", response_model=IssueKeyResponse)

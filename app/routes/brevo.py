@@ -9,6 +9,12 @@ from urllib3.util.retry import Retry
 from fastapi import APIRouter, HTTPException, Depends
 
 from app.middleware.auth import read_auth, write_auth
+from app.schemas.common import (
+    UpdateSegmentRequest,
+    UpdateSegmentResponse,
+    UserUpdatesRequest,
+    UserUpdatesResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,27 +37,20 @@ BREVO_SESSION.mount("https://", HTTPAdapter(max_retries=_brevo_retry))
 BREVO_SESSION.mount("http://", HTTPAdapter(max_retries=_brevo_retry))
 
 
-@router.post("/update_segment_attribute")
+@router.post(
+    "/update_segment_attribute",
+    response_model=UpdateSegmentResponse,
+    summary="Bulk-update a Brevo segment attribute",
+)
 async def update_segment_attribute(
-    data: dict,
+    req: UpdateSegmentRequest,
     token: str = Depends(write_auth),
 ):
-    """
-    Bulk update an attribute for all contacts in a Brevo segment.
-
-    Required fields: brevo_api_key, segment_id, attribute_name
-    Optional fields: attribute_value
-    """
-    brevo_api_key = data.get("brevo_api_key")
-    segment_id = data.get("segment_id")
-    attr_name = data.get("attribute_name")
-    attr_value = data.get("attribute_value")
-
-    if not brevo_api_key or segment_id is None or not attr_name:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required fields: brevo_api_key, segment_id, attribute_name",
-        )
+    """Bulk update an attribute for every contact in a Brevo segment."""
+    brevo_api_key = req.brevo_api_key
+    segment_id = req.segment_id
+    attr_name = req.attribute_name
+    attr_value = req.attribute_value
 
     # Fetch contacts in segment (paginated)
     headers_brevo = {"Accept": "application/json", "api-key": brevo_api_key}
@@ -145,23 +144,19 @@ async def update_segment_attribute(
     return {"status": "success", "total": total, "updated": updated, "failures": failures}
 
 
-@router.post("/user_updates")
-async def compare_users(data: dict, token: str = Depends(read_auth)):
-    """
-    Compare Voatz users with Brevo contacts and return differences.
-
-    Required fields: organizationId, WS, Csrf-Token, brevo_api_key, brevo_list_id
-    Optional fields: voatz_blacklist
-    """
-    organization_id = data.get("organizationId")
-    ws_token = data.get("WS")
-    csrf_token = data.get("Csrf-Token")
-    brevo_api_key = data.get("brevo_api_key")
-    brevo_list_id = data.get("brevo_list_id")
-    blacklist_raw = data.get("voatz_blacklist", [])
-
-    if not all([organization_id, ws_token, csrf_token, brevo_api_key, brevo_list_id]):
-        raise HTTPException(status_code=400, detail="Missing required fields.")
+@router.post(
+    "/user_updates",
+    response_model=UserUpdatesResponse,
+    summary="Diff Voatz users against a Brevo list",
+)
+async def compare_users(req: UserUpdatesRequest, token: str = Depends(read_auth)):
+    """Compare Voatz users for an organization with contacts in a Brevo list and return the differences."""
+    organization_id = req.organizationId
+    ws_token = req.WS
+    csrf_token = req.Csrf_Token
+    brevo_api_key = req.brevo_api_key
+    brevo_list_id = req.brevo_list_id
+    blacklist_raw = req.voatz_blacklist or []
 
     # Normalize blacklist
     if isinstance(blacklist_raw, str):
