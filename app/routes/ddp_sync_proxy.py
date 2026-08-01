@@ -17,7 +17,7 @@ from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["ddp-sync"])
 
 
 DDP_SYNC_SERVICE_URL = "http://localhost:8001"
@@ -71,9 +71,10 @@ async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.api_route(
+@router.get(
     "/sync/{path:path}",
-    methods=["GET"],
+    operation_id="proxy_sync_read",
+    summary="Forward a read to DDP-Sync",
 )
 async def proxy_sync_read(
     request: Request,
@@ -84,9 +85,20 @@ async def proxy_sync_read(
     return await _forward_to_ddp_sync(request, f"sync/{path}")
 
 
-@router.api_route(
+@router.post(
     "/sync/{path:path}",
-    methods=["POST", "PUT", "DELETE"],
+    operation_id="proxy_sync_create",
+    summary="Forward a write to DDP-Sync",
+)
+@router.put(
+    "/sync/{path:path}",
+    operation_id="proxy_sync_replace",
+    summary="Forward a write to DDP-Sync",
+)
+@router.delete(
+    "/sync/{path:path}",
+    operation_id="proxy_sync_delete",
+    summary="Forward a delete to DDP-Sync",
 )
 async def proxy_sync_write(
     request: Request,
@@ -97,9 +109,10 @@ async def proxy_sync_write(
     return await _forward_to_ddp_sync(request, f"sync/{path}")
 
 
-@router.api_route(
+@router.get(
     "/trigger/{path:path}",
-    methods=["GET"],
+    operation_id="proxy_trigger_read",
+    summary="Forward a trigger read to DDP-Sync",
 )
 async def proxy_trigger_read(
     request: Request,
@@ -110,9 +123,10 @@ async def proxy_trigger_read(
     return await _forward_to_ddp_sync(request, f"trigger/{path}")
 
 
-@router.api_route(
+@router.post(
     "/trigger/{path:path}",
-    methods=["POST"],
+    operation_id="proxy_trigger_write",
+    summary="Forward a trigger to DDP-Sync",
 )
 async def proxy_trigger_write(
     request: Request,

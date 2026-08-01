@@ -6,6 +6,16 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.middleware.auth import read_auth, write_auth
+from app.schemas.common import (
+    CreateEventRequest,
+    CreateEventResponse,
+    EventsResponse,
+    GetEventsRequest,
+    GetUsersRequest,
+    TokenRequest,
+    TokenResponse,
+    UsersResponse,
+)
 from app.services.voatz import (
     CREATE_EVENT_URL,
     VOATZ_HEADERS,
@@ -24,27 +34,11 @@ router = APIRouter(tags=["voatz"])
 # Passthrough endpoints — callers supply Voatz credentials / tokens directly
 # ---------------------------------------------------------------------------
 
-@router.post("/get_tokens")
-async def get_tokens(data: dict, _key=Depends(read_auth)):
-    """
-    Get Voatz WS/CSRF tokens by authenticating with Voatz credentials.
-
-    Required fields: emailAddress, password, organizationid
-    """
-    import requests
-
-    email           = data.get("emailAddress")
-    password        = data.get("password")
-    organization_id = data.get("organizationid")
-
-    if not email or not password or not organization_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing one or more required fields: emailAddress, password, organizationid",
-        )
-
+@router.post("/get_tokens", response_model=TokenResponse, summary="Get Voatz WS/CSRF tokens")
+async def get_tokens(req: TokenRequest, _key=Depends(read_auth)):
+    """Authenticate with Voatz credentials and return WS/CSRF session tokens."""
     try:
-        tokens = fetch_tokens(email, password, int(organization_id))
+        tokens = fetch_tokens(req.emailAddress, req.password, req.organizationid)
         return {"status": "success", "WS": tokens["WS"], "Csrf-Token": tokens["Csrf-Token"]}
     except HTTPException as e:
         # Return the Voatz error as a structured response rather than re-raising,
@@ -57,27 +51,15 @@ async def get_tokens(data: dict, _key=Depends(read_auth)):
         }
 
 
-@router.post("/get_users")
+@router.post("/get_users", response_model=UsersResponse, summary="Get Voatz users for an organization")
 async def get_users(
-    data: dict,
-    mode: str = Query(default=None),
+    req: GetUsersRequest,
+    mode: str = Query(default=None, description="Set to 'diff_only' to compare against Brevo voter_ids"),
     _key=Depends(read_auth),
 ):
-    """
-    Get users from Voatz for an organization.
-
-    Required fields: organizationId, WS, Csrf-Token
-    Optional query param: mode=diff_only (for comparing with Brevo voter_ids)
-    """
-    organization_id = data.get("organizationId")
-    ws_token        = data.get("WS")
-    csrf_token      = data.get("Csrf-Token")
-
-    if not organization_id or not ws_token or not csrf_token:
-        raise HTTPException(status_code=400, detail="Missing required fields.")
-
+    """Fetch users from Voatz for an organization, optionally diffed against a Brevo voter_ids list."""
     try:
-        users = fetch_users(ws_token, csrf_token, organization_id)
+        users = fetch_users(req.WS, req.Csrf_Token, req.organizationId)
     except HTTPException as e:
         return {
             "message": "Failed to retrieve users.",
@@ -87,13 +69,13 @@ async def get_users(
         }
 
     if mode == "diff_only":
-        return _process_diff_mode(data, users)
+        return _process_diff_mode(req, users)
     return {"status": "success", "users": users}
 
 
-def _process_diff_mode(data: dict, users: list) -> dict:
+def _process_diff_mode(req: GetUsersRequest, users: list) -> dict:
     """Process diff_only mode for get_users."""
-    blacklist_raw = data.get("voatz_blacklist", [])
+    blacklist_raw = req.voatz_blacklist or []
     if isinstance(blacklist_raw, str):
         blacklist = set(v.strip() for v in blacklist_raw.split(",") if v.strip())
     elif isinstance(blacklist_raw, list):
@@ -124,7 +106,7 @@ def _process_diff_mode(data: dict, users: list) -> dict:
                     voter_details_by_id[voter_id] = flatten_user(user)
                 break
 
-    voter_ids_from_brevo = data.get("voter_ids", [])
+    voter_ids_from_brevo = req.voter_ids or []
     if isinstance(voter_ids_from_brevo, str):
         brevo_ids = [v.strip() for v in voter_ids_from_brevo.split(",") if v.strip()]
     elif isinstance(voter_ids_from_brevo, list):
@@ -153,28 +135,13 @@ def _process_diff_mode(data: dict, users: list) -> dict:
     }
 
 
-@router.post("/get_events")
-async def get_events(data: dict, _key=Depends(read_auth)):
-    """
-    Get events from Voatz for an organization.
-
-    Required fields: organizationId, WS, Csrf-Token
-    Optional fields: limit, minTs
-    """
-    organization_id = data.get("organizationId")
-    ws_token        = data.get("WS")
-    csrf_token      = data.get("Csrf-Token")
-    limit           = data.get("limit")
-    min_ts          = data.get("minTs")
-
-    if not organization_id or not ws_token or not csrf_token:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required fields: organizationId, WS, or Csrf-Token",
-        )
-
+@router.post("/get_events", response_model=EventsResponse, summary="Get Voatz events for an organization")
+async def get_events(req: GetEventsRequest, _key=Depends(read_auth)):
+    """Fetch events from Voatz for an organization, optionally bounded by limit/minTs."""
     try:
-        events_data = fetch_events(ws_token, csrf_token, organization_id, limit=limit, min_ts=min_ts)
+        events_data = fetch_events(
+            req.WS, req.Csrf_Token, req.organizationId, limit=req.limit, min_ts=req.minTs
+        )
     except HTTPException as e:
         return {
             "status":  "error",
@@ -186,37 +153,19 @@ async def get_events(data: dict, _key=Depends(read_auth)):
     return {"status": "success", "events": events_data}
 
 
-@router.post("/create_event")
-async def create_event(data: dict, _key=Depends(write_auth)):
-    """
-    Create an event in Voatz.
-
-    Required fields: organizationId, WS, Csrf-Token
-    Additional fields are passed through to the Voatz API.
-    """
+@router.post("/create_event", response_model=CreateEventResponse, summary="Create an event in Voatz")
+async def create_event(req: CreateEventRequest, _key=Depends(write_auth)):
+    """Create an event in Voatz. Any fields beyond organizationId/WS/Csrf-Token are passed through as-is."""
     import requests as _requests
-
-    organization_id = data.get("organizationId")
-    ws_token        = data.get("WS")
-    csrf_token      = data.get("Csrf-Token")
-
-    if not organization_id or not ws_token or not csrf_token:
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required fields: organizationId, WS, or Csrf-Token",
-        )
 
     headers = {
         **VOATZ_HEADERS,
-        "WS":         ws_token,
-        "Csrf-Token": csrf_token,
-        "Cookie":     f"WS={ws_token}; Csrf-Token={csrf_token}",
+        "WS":         req.WS,
+        "Csrf-Token": req.Csrf_Token,
+        "Cookie":     f"WS={req.WS}; Csrf-Token={req.Csrf_Token}",
     }
 
-    payload = data.copy()
-    payload.pop("WS", None)
-    payload.pop("Csrf-Token", None)
-    payload.pop("organizationId", None)
+    payload = req.model_extra or {}
 
     try:
         response = _requests.post(CREATE_EVENT_URL, headers=headers, json=payload, timeout=60)
@@ -255,7 +204,7 @@ def _check_org_access(auth_key, org_id: int):
         )
 
 
-@router.get("/voatz/users/{org_id}")
+@router.get("/voatz/users/{org_id}", response_model=UsersResponse, summary="Get Voatz users (pre-authenticated)")
 async def get_users_wrapped(org_id: int, auth_key=Depends(read_auth)):
     """
     Pre-authenticated users endpoint.
@@ -269,7 +218,7 @@ async def get_users_wrapped(org_id: int, auth_key=Depends(read_auth)):
     return {"status": "success", "users": users}
 
 
-@router.get("/voatz/events/{org_id}")
+@router.get("/voatz/events/{org_id}", response_model=EventsResponse, summary="Get Voatz events (pre-authenticated)")
 async def get_events_wrapped(
     org_id: int,
     limit:  Optional[int] = Query(default=None),

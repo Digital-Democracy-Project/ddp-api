@@ -32,6 +32,11 @@ class TokenResponse(BaseModel):
     WS: Optional[str] = Field(None, alias="WS")
     Csrf_Token: Optional[str] = Field(None, alias="Csrf-Token")
     message: Optional[str] = None
+    status_code: Optional[int] = None
+    text: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
 
 
 # Get Users endpoint
@@ -58,6 +63,9 @@ class UsersResponse(BaseModel):
     brevo_total: Optional[int] = None
     new_count: Optional[int] = None
     removed_count: Optional[int] = None
+    message: Optional[str] = None
+    code: Optional[int] = None
+    text: Optional[str] = None
 
 
 # User Updates endpoint
@@ -77,13 +85,16 @@ class UserUpdatesRequest(BaseModel):
 class UserUpdatesResponse(BaseModel):
     """Response model for /user_updates endpoint."""
     status: str
-    diff_mode: bool
-    added_users: list
-    removed_users: list
-    api_total: int
-    brevo_total: int
-    new_count: int
-    removed_count: int
+    diff_mode: Optional[bool] = None
+    added_users: Optional[list] = None
+    removed_users: Optional[list] = None
+    api_total: Optional[int] = None
+    brevo_total: Optional[int] = None
+    no_voatz_id_count: Optional[int] = None
+    new_count: Optional[int] = None
+    removed_count: Optional[int] = None
+    message: Optional[str] = None
+    text: Optional[str] = None
 
 
 # Get Events endpoint
@@ -143,9 +154,12 @@ class UpdateSegmentRequest(BaseModel):
 class UpdateSegmentResponse(BaseModel):
     """Response model for /update_segment_attribute endpoint."""
     status: str
-    total: int
-    updated: int
-    failures: list
+    total: Optional[int] = None
+    updated: Optional[int] = None
+    failures: Optional[list] = None
+    message: Optional[str] = None
+    code: Optional[int] = None
+    text: Optional[str] = None
 
 
 # VoteBot Chat endpoint

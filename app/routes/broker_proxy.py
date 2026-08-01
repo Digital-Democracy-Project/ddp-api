@@ -32,7 +32,7 @@ from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["broker"])
 
 EC2_BROKER_SERVICE_URL = os.getenv("EC2_BROKER_SERVICE_URL", "http://localhost:8080")
 
@@ -89,9 +89,10 @@ async def _forward(request: Request, path: str) -> Response:
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.api_route(
+@router.get(
     "/broker/{path:path}",
-    methods=["GET"],
+    operation_id="proxy_broker_read",
+    summary="Forward a read to ddp-broker-py",
 )
 async def proxy_broker_read(
     request: Request,
@@ -102,9 +103,20 @@ async def proxy_broker_read(
     return await _forward(request, path)
 
 
-@router.api_route(
+@router.post(
     "/broker/{path:path}",
-    methods=["POST", "PUT", "DELETE"],
+    operation_id="proxy_broker_create",
+    summary="Forward a write to ddp-broker-py",
+)
+@router.put(
+    "/broker/{path:path}",
+    operation_id="proxy_broker_replace",
+    summary="Forward a write to ddp-broker-py",
+)
+@router.delete(
+    "/broker/{path:path}",
+    operation_id="proxy_broker_delete",
+    summary="Forward a delete to ddp-broker-py",
 )
 async def proxy_broker_write(
     request: Request,
