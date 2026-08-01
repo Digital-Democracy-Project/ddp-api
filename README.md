@@ -142,16 +142,12 @@ These routes forward to DDP-Sync (:8001) automatically. New DDP-Sync endpoints a
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/votebot/sync/{path}` | GET | Read | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
-| `/votebot/sync/{path}` | POST/PUT/DELETE | **Write** | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
-| `/votebot/trigger/{path}` | GET | Read | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
-| `/votebot/trigger/{path}` | POST | **Write** | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
-| `/sync/{path}` | GET | Read | Forward to DDP-Sync (root-level alias) |
-| `/sync/{path}` | POST/PUT/DELETE | **Write** | Forward to DDP-Sync (root-level alias) |
-| `/trigger/{path}` | GET | Read | Forward to DDP-Sync (root-level alias) |
-| `/trigger/{path}` | POST | **Write** | Forward to DDP-Sync (root-level alias) |
+| `/sync/{path}` | GET | Read | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
+| `/sync/{path}` | POST/PUT/DELETE | **Write** | Forward to DDP-Sync `/ddp-sync/v1/sync/{path}` |
+| `/trigger/{path}` | GET | Read | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
+| `/trigger/{path}` | POST | **Write** | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
 
-Common paths: `/votebot/sync/unified` (trigger sync), `/votebot/sync/unified/status/{id}` (poll status), `/votebot/trigger/user-sync` (Voatz→Brevo sync).
+Common paths: `/sync/unified` (trigger sync), `/sync/unified/status/{id}` (poll status), `/trigger/user-sync` (Voatz→Brevo sync).
 
 ### OpenStates Proxy Endpoints
 
@@ -214,7 +210,7 @@ Forwards to production `ddp-broker-py`. The proxy holds its own downstream crede
 ### Issuing keys
 
 ```bash
-BASE="https://your-api-domain.com"
+BASE="https://api.digitaldemocracyproject.org"
 ADMIN_TOKEN="your-admin-scoped-key"   # or API_BEARER_TOKEN during bootstrapping
 
 # Read-only key, restricted to one org
@@ -534,7 +530,7 @@ sudo systemctl status ddp-api
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name api.digitaldemocracyproject.org;
 
     location / {
         proxy_pass http://127.0.0.1:5000;
@@ -565,7 +561,7 @@ sudo nginx -t && sudo systemctl reload nginx
 After deploying, issue managed keys using the existing `API_BEARER_TOKEN`:
 
 ```bash
-BASE="https://your-domain.com"
+BASE="https://api.digitaldemocracyproject.org"
 BOOTSTRAP="$API_BEARER_TOKEN"
 
 # Admin key for operators
@@ -595,7 +591,7 @@ Once all callers have migrated to managed keys, remove `API_BEARER_TOKEN` and `A
 sudo systemctl status ddp-api
 sudo journalctl -u ddp-api -f
 curl http://localhost:5000/health
-curl https://your-domain.com/health
+curl https://api.digitaldemocracyproject.org/health
 ```
 
 ### Rollback (if needed)

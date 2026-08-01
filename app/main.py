@@ -75,7 +75,6 @@ app.include_router(webflow_router)
 app.include_router(admin_router)
 
 # Catch-all proxy for ddp-sync
-app.include_router(ddp_sync_router, prefix="/votebot")
 app.include_router(ddp_sync_router)
 
 # Local OpenStates api-v3 proxy
