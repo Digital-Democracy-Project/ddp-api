@@ -40,7 +40,9 @@ DDP-API/
 │   │   ├── admin.py         # API key management endpoints
 │   │   ├── ddp_sync_proxy.py # Catch-all proxy for DDP-Sync (:8001)
 │   │   ├── votebot.py       # VoteBot chat proxy endpoints
-│   │   └── webflow.py       # Webflow CMS management endpoints
+│   │   ├── webflow.py       # Webflow CMS management endpoints
+│   │   ├── openstates_proxy.py # Catch-all proxy for local OpenStates api-v3 (WireGuard)
+│   │   └── broker_proxy.py  # Catch-all proxy for production ddp-broker-py
 │   ├── schemas/
 │   │   ├── common.py        # Pydantic request/response models
 │   │   ├── admin.py         # Admin key management models
@@ -157,6 +159,15 @@ Common paths: `/votebot/sync/unified` (trigger sync), `/votebot/sync/unified/sta
 |----------|--------|------|-------------|
 | `/openstates/{path}` | GET/POST | Read | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
 
+### Broker Proxy Endpoints (catch-all)
+
+Forwards to production `ddp-broker-py`. The proxy holds its own downstream credential (a copy of `ddp-broker-py`'s `DDP_SYNC_SERVICE_TOKEN` value) rather than forwarding the caller's ddp-api key — callers never need a broker-side credential.
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/broker/{path}` | GET | Read | Forward to `ddp-broker-py` |
+| `/broker/{path}` | POST/PUT/DELETE | **Write** | Forward to `ddp-broker-py` |
+
 ### Webflow CMS Endpoints
 
 #### Fill endpoints
@@ -251,14 +262,19 @@ curl -s -X POST $BASE/admin/keys/key_abc123/rotate \
 |----------|-------------|---------|
 | `API_BEARER_TOKEN` | Fallback write token (retire after issuing managed keys) | (optional) |
 | `API_READ_ONLY_TOKEN` | Fallback read token (retire after issuing managed keys) | (optional) |
-| `AWS_SECRET_NAME` | Secrets Manager secret name | `ddp-api/org-credentials` |
+| `AWS_SECRET_NAME` | Secrets Manager secret name (org credentials) | `ddp-api/org-credentials` |
 | `AWS_REGION` | AWS region | `us-east-1` |
 | `LOCAL_CONFIG_PATH` | Path to local config file | `config.local.json` |
+| `API_KEYS_SECRET_NAME` | Secrets Manager secret name for the API key store (dedicated, decoupled from org credentials) | `ddp-api/api-keys` |
+| `API_KEYS_LOCAL_PATH` | Local dev fallback path for the key store | `api-keys.local.json` |
 | `VOTEBOT_SERVICE_URL` | VoteBot HTTP service URL | `http://localhost:8000` |
 | `VOTEBOT_WS_URL` | VoteBot WebSocket URL | `ws://localhost:8000/ws/chat` |
 | `VOTEBOT_API_KEY` | API key for VoteBot authentication | (required for VoteBot) |
 | `DDP_SYNC_SERVICE_URL` | DDP-Sync HTTP service URL | `http://localhost:8001` |
 | `DDP_SYNC_API_KEY` | API key for DDP-Sync authentication (fallback) | (in Secrets Manager) |
+| `OPENSTATES_SERVICE_URL` | Local OpenStates api-v3 URL (Mac Studio via WireGuard) | `http://10.0.0.8:8002` |
+| `EC2_BROKER_SERVICE_URL` | Production `ddp-broker-py` URL | `http://localhost:8080` |
+| `DDP_BROKER_API_TOKEN` | This proxy's own downstream credential for `ddp-broker-py` (fallback; prefer Secrets Manager `ddp_broker_api_token`) | (in Secrets Manager) |
 | `VOATZ_API_BASE_URL` | Voatz API base URL | `https://api.voatz.com` |
 | `VOATZ_API_ORIGIN` | Origin header for Voatz API requests | `https://api.voatz.com` |
 | `WEBFLOW_API_TOKEN` | Webflow CMS API token | (required for Webflow) |
@@ -597,6 +613,7 @@ sudo systemctl restart ddp-api
 - [VoteBot](https://github.com/Digital-Democracy-Project/votebot) - RAG-powered chatbot for civic engagement
 - [Chat Widget](https://github.com/VotingRightsBrigade/chat-widget-poc) - Embeddable chat widget for VoteBot
 - [FillWebflowFields](https://github.com/VotingRightsBrigade/FillWebflowFields) - Webflow CMS management package (`webflow_cms`)
+- `ddp-broker-py` - Production write-path service (EC2); proxied via `/broker/*`
 
 ## License
 

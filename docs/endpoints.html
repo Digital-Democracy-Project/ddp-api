@@ -298,12 +298,10 @@
       <div class="endpoint">
         <span class="method GET">GET</span>
         <span class="path">/voatz/users/<span class="param">{org_id}</span></span>
-        <span class="new-badge">NEW</span>
       </div>
       <div class="endpoint">
         <span class="method GET">GET</span>
         <span class="path">/voatz/events/<span class="param">{org_id}</span></span>
-        <span class="new-badge">NEW</span>
       </div>
       <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
         <span style="font-size:11px; color:#888; font-style:italic;">
@@ -346,6 +344,18 @@
       <div class="card-title">Webflow — Check <span class="backend-tag">Webflow CMS</span></div>
       <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/check/org-missing-fields</span></div>
       <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/check/duplicates</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Broker Proxy — Read <span class="backend-tag">ddp-broker-py</span></div>
+      <div class="endpoint">
+        <span class="method GET">GET</span>
+        <span class="path">/broker/<span class="param">{path}</span></span>
+        <span class="new-badge">NEW</span>
+      </div>
+      <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
+        <span style="font-size:11px; color:#888; font-style:italic;">Catch-all, forwarded verbatim.<br>Proxy injects its own downstream token.</span>
+      </div>
     </div>
 
   </div>
@@ -403,6 +413,13 @@
       <div class="card-title">Webflow — Resolve &amp; Delete <span class="backend-tag">Webflow CMS</span></div>
       <div class="endpoint"><span class="method POST">POST</span><span class="path">/webflow/resolve/duplicate-group</span></div>
       <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/webflow/items/<span class="param">{item_id}</span></span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Broker Proxy — Write <span class="backend-tag">ddp-broker-py</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/broker/<span class="param">{path}</span></span><span class="new-badge">NEW</span></div>
+      <div class="endpoint"><span class="method PUT">PUT</span><span class="path">/broker/<span class="param">{path}</span></span><span class="new-badge">NEW</span></div>
+      <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/broker/<span class="param">{path}</span></span><span class="new-badge">NEW</span></div>
     </div>
 
   </div>
