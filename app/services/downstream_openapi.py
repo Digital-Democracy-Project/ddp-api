@@ -79,6 +79,7 @@ def _merge_paths(
     rename: dict,
     tag: str,
     op_id_prefix: str,
+    description_banner: Optional[str] = None,
 ) -> bool:
     """path_map(old_path) -> new_path, or None to skip a path that isn't
     actually reachable through this proxy. Returns True if anything merged."""
@@ -97,6 +98,8 @@ def _merge_paths(
             op["security"] = [{"HTTPBearer": []}]
             if "operationId" in op:
                 op["operationId"] = f"{op_id_prefix}{op['operationId']}"
+            if description_banner:
+                op["description"] = f"{description_banner}\n\n{op.get('description', '')}".rstrip()
         base_spec["paths"][new_path] = rewritten
         merged_any = True
     return merged_any
@@ -129,8 +132,10 @@ async def merge_ddp_sync(base_spec: dict, service_url: str) -> None:
 
 
 async def merge_openstates(base_spec: dict, service_url: str) -> None:
-    """Splice api-v3's real schemas into base_spec, replacing the generic
-    /openstates/{path} catch-all entry. api-v3's proxy has no path
+    """Splice DDP's own self-hosted OpenStates api-v3 instance's real schemas
+    into base_spec, replacing the generic /openstates/{path} catch-all entry.
+    This is NOT the public openstates.org API -- it's DDP's own fork/data,
+    which just happens to reuse api-v3's schema. That proxy has no path
     restriction, so every one of its routes is remounted under /openstates."""
     spec = await _fetch_spec(f"{service_url}/openapi.json", "openstates")
     if not spec:
@@ -142,7 +147,16 @@ async def merge_openstates(base_spec: dict, service_url: str) -> None:
         return f"/openstates{old_path}"
 
     merged = _merge_paths(
-        base_spec, spec.get("paths", {}), path_map, rename, tag="openstates", op_id_prefix="openstates__"
+        base_spec,
+        spec.get("paths", {}),
+        path_map,
+        rename,
+        tag="ddp-openstates",
+        op_id_prefix="openstates__",
+        description_banner=(
+            "**DDP's own self-hosted OpenStates instance — not the public openstates.org API.** "
+            "Runs DDP's own scrapers against DDP's own database; reuses api-v3's schema/codebase only."
+        ),
     )
     if merged:
         base_spec["paths"].pop("/openstates/{path}", None)

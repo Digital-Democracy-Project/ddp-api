@@ -1,9 +1,12 @@
-"""Catch-all proxy for the local OpenStates api-v3 instance.
+"""Catch-all proxy for DDP's own self-hosted OpenStates api-v3 instance.
 
-All requests to /openstates/* are forwarded to the Mac Studio api-v3
-(10.0.0.8:8002) over WireGuard. The Mac Studio is not reachable from
-all EC2 instances directly — this proxy makes it available to services
-(e.g. ddp-broker-py) that don't have WireGuard configured.
+This is DDP's own fork of openstates/api-v3, running DDP's own scrapers
+against DDP's own database on the Mac Studio (10.0.0.8:8002, over
+WireGuard) -- it reuses api-v3's schema/codebase but is NOT the public
+openstates.org API and holds no upstream openstates.org data. The Mac
+Studio is not reachable from all EC2 instances directly -- this proxy
+makes it available to services (e.g. ddp-broker-py) that don't have
+WireGuard configured.
 
 Auth: standard ddp-api bearer token (same as every other route).
 The local UUID key is injected when forwarding to api-v3 internally.
@@ -19,7 +22,7 @@ from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["openstates"])
+router = APIRouter(tags=["ddp-openstates"])
 
 # This proxy forwards the request body verbatim and validates nothing itself;
 # only api-v3 can return a 422. Declaring it here (with no schema) suppresses
@@ -68,7 +71,7 @@ async def _forward(request: Request, path: str) -> Response:
 @router.get(
     "/openstates/{path:path}",
     operation_id="proxy_openstates_read",
-    summary="Forward a read to the local OpenStates api-v3",
+    summary="Forward a read to DDP's own OpenStates instance",
     responses=_NO_VALIDATION_422,
 )
 async def proxy_openstates_read(
@@ -76,14 +79,15 @@ async def proxy_openstates_read(
     path: str,
     token: str = Depends(read_auth),
 ):
-    """Forward GET /openstates/* requests to the local api-v3 instance (read-only token accepted)."""
+    """Forward GET /openstates/* requests to DDP's own self-hosted OpenStates api-v3 instance
+    (read-only token accepted) — DDP's own scraped data, not the public openstates.org API."""
     return await _forward(request, path)
 
 
 @router.post(
     "/openstates/{path:path}",
     operation_id="proxy_openstates_write",
-    summary="Forward a write to the local OpenStates api-v3",
+    summary="Forward a write to DDP's own OpenStates instance",
     responses=_NO_VALIDATION_422,
 )
 async def proxy_openstates_write(
@@ -91,5 +95,6 @@ async def proxy_openstates_write(
     path: str,
     token: str = Depends(write_auth),
 ):
-    """Forward POST /openstates/* requests to the local api-v3 instance (write token required)."""
+    """Forward POST /openstates/* requests to DDP's own self-hosted OpenStates api-v3 instance
+    (write token required) — DDP's own scraped data, not the public openstates.org API."""
     return await _forward(request, path)

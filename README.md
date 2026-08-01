@@ -41,7 +41,7 @@ DDP-API/
 │   │   ├── ddp_sync_proxy.py # Catch-all proxy for DDP-Sync (:8001)
 │   │   ├── votebot.py       # VoteBot chat proxy endpoints
 │   │   ├── webflow.py       # Webflow CMS management endpoints
-│   │   ├── openstates_proxy.py # Catch-all proxy for local OpenStates api-v3 (WireGuard)
+│   │   ├── openstates_proxy.py # Catch-all proxy for DDP's own OpenStates api-v3 instance (WireGuard)
 │   │   └── broker_proxy.py  # Catch-all proxy for production ddp-broker-py
 │   ├── schemas/
 │   │   ├── common.py        # Pydantic request/response models
@@ -151,14 +151,16 @@ Common paths: `/sync/unified` (trigger sync), `/sync/unified/status/{id}` (poll 
 
 `/docs` shows DDP-Sync's real request/response schemas here, not just the generic `{path}` shape — `public_openapi()` fetches DDP-Sync's own `/openapi.json` at doc-generation time (cached 5 min) and splices its `/sync/*`/`/trigger/*` paths in. Falls back to the generic catch-all shape if DDP-Sync is unreachable. See `app/services/downstream_openapi.py`.
 
-### OpenStates Proxy Endpoints
+### DDP-OpenStates Proxy Endpoints
+
+> **This is DDP's own self-hosted OpenStates api-v3 instance — not the public openstates.org API.** It runs DDP's own scrapers against DDP's own database on the Mac Studio; it just reuses the api-v3 schema/codebase. No upstream openstates.org data lives here.
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/openstates/{path}` | GET | Read | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
-| `/openstates/{path}` | POST | **Write** | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
+| `/openstates/{path}` | GET | Read | Forward to DDP's own OpenStates api-v3 instance (Mac Studio via WireGuard) |
+| `/openstates/{path}` | POST | **Write** | Forward to DDP's own OpenStates api-v3 instance (Mac Studio via WireGuard) |
 
-Same live-schema merge as the DDP-Sync proxy above: `/docs` shows every real api-v3 route (`/openstates/bills`, `/openstates/people`, etc.) with its actual schema, remounted under `/openstates`. api-v3 has no path restriction, so all of its routes are reachable this way. Falls back to the generic catch-all shape if api-v3/WireGuard is unreachable.
+Same live-schema merge as the DDP-Sync proxy above: `/docs` shows every real api-v3 route (`/openstates/bills`, `/openstates/people`, etc.) with its actual schema, remounted under `/openstates`, tagged `ddp-openstates`, and prefixed with a "not the public API" banner on every operation. api-v3 has no path restriction, so all of its routes are reachable this way. Falls back to the generic catch-all shape if api-v3/WireGuard is unreachable.
 
 ### Broker Proxy Endpoints (catch-all)
 

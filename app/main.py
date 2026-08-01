@@ -61,9 +61,10 @@ TAGS_METADATA = [
         "sync and scheduled-job triggers. New DDP-Sync endpoints are available here automatically.",
     },
     {
-        "name": "openstates",
-        "description": "Catch-all proxy to the local OpenStates api-v3 instance, reachable "
-        "over WireGuard from services that aren't on the mesh themselves.",
+        "name": "ddp-openstates",
+        "description": "Catch-all proxy to **DDP's own self-hosted OpenStates api-v3 instance** "
+        "(Mac Studio, reachable over WireGuard) — running DDP's own scrapers against DDP's own "
+        "database. This is **not** the public openstates.org API; it just reuses api-v3's schema.",
     },
     {
         "name": "broker",
