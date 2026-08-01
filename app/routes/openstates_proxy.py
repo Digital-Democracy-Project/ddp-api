@@ -21,6 +21,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["openstates"])
 
+# This proxy forwards the request body verbatim and validates nothing itself;
+# only api-v3 can return a 422. Declaring it here (with no schema) suppresses
+# FastAPI's default HTTPValidationError placeholder in the generated docs.
+_NO_VALIDATION_422 = {
+    422: {"description": "Not returned by this proxy. Any 422 comes from api-v3 itself."}
+}
+
 OPENSTATES_SERVICE_URL = os.getenv("OPENSTATES_SERVICE_URL", "http://10.0.0.8:8002")
 # Internal UUID key for the local api-v3 instance. Not a secret — only reachable
 # over WireGuard. Sent as x-api-key header so callers never need to supply it.
@@ -62,6 +69,7 @@ async def _forward(request: Request, path: str) -> Response:
     "/openstates/{path:path}",
     operation_id="proxy_openstates_read",
     summary="Forward a read to the local OpenStates api-v3",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_openstates_read(
     request: Request,
@@ -76,6 +84,7 @@ async def proxy_openstates_read(
     "/openstates/{path:path}",
     operation_id="proxy_openstates_write",
     summary="Forward a write to the local OpenStates api-v3",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_openstates_write(
     request: Request,

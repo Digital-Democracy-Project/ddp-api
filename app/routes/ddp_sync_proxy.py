@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ddp-sync"])
 
+# This proxy forwards the request body verbatim and validates nothing itself;
+# only ddp-sync can return a 422. Declaring it here (with no schema) suppresses
+# FastAPI's default HTTPValidationError placeholder in the generated docs.
+_NO_VALIDATION_422 = {
+    422: {"description": "Not returned by this proxy. Any 422 comes from ddp-sync itself."}
+}
+
 
 DDP_SYNC_SERVICE_URL = "http://localhost:8001"
 
@@ -75,6 +82,7 @@ async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
     "/sync/{path:path}",
     operation_id="proxy_sync_read",
     summary="Forward a read to DDP-Sync",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_sync_read(
     request: Request,
@@ -89,16 +97,19 @@ async def proxy_sync_read(
     "/sync/{path:path}",
     operation_id="proxy_sync_create",
     summary="Forward a write to DDP-Sync",
+    responses=_NO_VALIDATION_422,
 )
 @router.put(
     "/sync/{path:path}",
     operation_id="proxy_sync_replace",
     summary="Forward a write to DDP-Sync",
+    responses=_NO_VALIDATION_422,
 )
 @router.delete(
     "/sync/{path:path}",
     operation_id="proxy_sync_delete",
     summary="Forward a delete to DDP-Sync",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_sync_write(
     request: Request,
@@ -113,6 +124,7 @@ async def proxy_sync_write(
     "/trigger/{path:path}",
     operation_id="proxy_trigger_read",
     summary="Forward a trigger read to DDP-Sync",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_trigger_read(
     request: Request,
@@ -127,6 +139,7 @@ async def proxy_trigger_read(
     "/trigger/{path:path}",
     operation_id="proxy_trigger_write",
     summary="Forward a trigger to DDP-Sync",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_trigger_write(
     request: Request,
