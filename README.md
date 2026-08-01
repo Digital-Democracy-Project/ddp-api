@@ -169,6 +169,8 @@ Forwards to production `ddp-broker-py`. The proxy holds its own downstream crede
 | `/broker/{path}` | GET | Read | Forward to `ddp-broker-py` |
 | `/broker/{path}` | POST/PUT/DELETE | **Write** | Forward to `ddp-broker-py` |
 
+Same live-schema merge as the DDP-Sync and OpenStates proxies above: `/docs` shows every real ddp-broker-py route (`/broker/api/bills/`, `/broker/api/bill-artifacts/`, etc.) with its actual schema, remounted under `/broker`. ddp-broker-py is Django + drf-spectacular (schema at `/api/schema/`, not `/openapi.json`) — falls back to the generic catch-all shape if it's unreachable.
+
 ### Webflow CMS Endpoints
 
 #### Fill endpoints

@@ -4,15 +4,17 @@ own generated docs.
 ddp_sync_proxy.py, openstates_proxy.py, and broker_proxy.py are catch-all
 proxies -- FastAPI can only describe them by their generic `{path}` shape,
 not the real request/response schemas of whatever they're forwarding to.
-This module fetches the downstream service's own /openapi.json (both
-ddp-sync and the local OpenStates api-v3 are plain FastAPI apps exposing
-one) and splices its path items and component schemas into ddp-api's spec,
-remounted under the proxy's public prefix.
+This module fetches each downstream service's own OpenAPI spec and splices
+its path items and component schemas into ddp-api's spec, remounted under
+the proxy's public prefix. ddp-sync and the local OpenStates api-v3 are
+plain FastAPI apps exposing one at /openapi.json; ddp-broker-py is Django +
+drf-spectacular, exposing one at /api/schema/ instead.
 
 Each fetch is cached in-memory with a TTL: fetching on every /docs load
-would be slow and would make the public docs page depend on ddp-sync/api-v3
-being reachable. A stale cache or a failed fetch degrades gracefully -- the
-generic catch-all entry for that proxy is left in place untouched.
+would be slow and would make the public docs page depend on all three
+downstream services being reachable. A stale cache or a failed fetch
+degrades gracefully -- the generic catch-all entry for that proxy is left
+in place untouched.
 """
 
 import logging
@@ -36,7 +38,12 @@ async def _fetch_spec(url: str, cache_key: str) -> Optional[dict]:
     spec: Optional[dict] = None
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
+            # drf-spectacular's SpectacularAPIView defaults to YAML for a
+            # generic Accept header (FastAPI's own /openapi.json ignores this
+            # and always returns JSON regardless, so it's harmless there).
+            response = await client.get(
+                url, headers={"Accept": "application/vnd.oai.openapi+json, application/json"}
+            )
             response.raise_for_status()
             spec = response.json()
     except Exception as e:
@@ -146,3 +153,23 @@ async def merge_openstates(base_spec: dict, service_url: str) -> None:
     )
     if merged:
         base_spec["paths"].pop("/openstates/{path}", None)
+
+
+async def merge_broker(base_spec: dict, service_url: str) -> None:
+    """Splice ddp-broker-py's real schemas into base_spec, replacing the
+    generic /broker/{path} catch-all entry. Like openstates_proxy.py, this
+    proxy has no path restriction, so every one of its routes is remounted
+    under /broker. ddp-broker-py is Django + drf-spectacular (not FastAPI),
+    so its schema lives at /api/schema/, not /openapi.json."""
+    spec = await _fetch_spec(f"{service_url}/api/schema/", "broker")
+    if not spec:
+        return
+
+    rename = _merge_schemas(base_spec, spec.get("components", {}).get("schemas", {}), "Broker")
+
+    def path_map(old_path: str) -> Optional[str]:
+        return f"/broker{old_path}"
+
+    merged = _merge_paths(base_spec, spec.get("paths", {}), path_map, rename, tag="broker", op_id_prefix="broker__")
+    if merged:
+        base_spec["paths"].pop("/broker/{path}", None)
