@@ -153,7 +153,8 @@ Common paths: `/sync/unified` (trigger sync), `/sync/unified/status/{id}` (poll 
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/openstates/{path}` | GET/POST | Read | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
+| `/openstates/{path}` | GET | Read | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
+| `/openstates/{path}` | POST | **Write** | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
 
 ### Broker Proxy Endpoints (catch-all)
 

@@ -15,11 +15,11 @@ import os
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.middleware.auth import read_auth
+from app.middleware.auth import read_auth, write_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["openstates"])
 
 OPENSTATES_SERVICE_URL = os.getenv("OPENSTATES_SERVICE_URL", "http://10.0.0.8:8002")
 # Internal UUID key for the local api-v3 instance. Not a secret — only reachable
@@ -58,11 +58,29 @@ async def _forward(request: Request, path: str) -> Response:
         raise HTTPException(status_code=502, detail=str(e))
 
 
-@router.api_route("/openstates/{path:path}", methods=["GET", "POST"])
-async def proxy_openstates(
+@router.get(
+    "/openstates/{path:path}",
+    operation_id="proxy_openstates_read",
+    summary="Forward a read to the local OpenStates api-v3",
+)
+async def proxy_openstates_read(
     request: Request,
     path: str,
     token: str = Depends(read_auth),
 ):
-    """Forward all /openstates/* requests to the local api-v3 instance."""
+    """Forward GET /openstates/* requests to the local api-v3 instance (read-only token accepted)."""
+    return await _forward(request, path)
+
+
+@router.post(
+    "/openstates/{path:path}",
+    operation_id="proxy_openstates_write",
+    summary="Forward a write to the local OpenStates api-v3",
+)
+async def proxy_openstates_write(
+    request: Request,
+    path: str,
+    token: str = Depends(write_auth),
+):
+    """Forward POST /openstates/* requests to the local api-v3 instance (write token required)."""
     return await _forward(request, path)
