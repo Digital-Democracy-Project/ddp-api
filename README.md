@@ -149,12 +149,16 @@ These routes forward to DDP-Sync (:8001) automatically. New DDP-Sync endpoints a
 
 Common paths: `/sync/unified` (trigger sync), `/sync/unified/status/{id}` (poll status), `/trigger/user-sync` (Voatz→Brevo sync).
 
+`/docs` shows DDP-Sync's real request/response schemas here, not just the generic `{path}` shape — `public_openapi()` fetches DDP-Sync's own `/openapi.json` at doc-generation time (cached 5 min) and splices its `/sync/*`/`/trigger/*` paths in. Falls back to the generic catch-all shape if DDP-Sync is unreachable. See `app/services/downstream_openapi.py`.
+
 ### OpenStates Proxy Endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/openstates/{path}` | GET | Read | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
 | `/openstates/{path}` | POST | **Write** | Forward to local OpenStates api-v3 instance (Mac Studio via WireGuard) |
+
+Same live-schema merge as the DDP-Sync proxy above: `/docs` shows every real api-v3 route (`/openstates/bills`, `/openstates/people`, etc.) with its actual schema, remounted under `/openstates`. api-v3 has no path restriction, so all of its routes are reachable this way. Falls back to the generic catch-all shape if api-v3/WireGuard is unreachable.
 
 ### Broker Proxy Endpoints (catch-all)
 

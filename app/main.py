@@ -130,13 +130,20 @@ app.include_router(broker_router)
 @app.get("/openapi.json", include_in_schema=False)
 async def public_openapi():
     from fastapi.openapi.utils import get_openapi
-    return get_openapi(
+    from app.routes.ddp_sync_proxy import DDP_SYNC_SERVICE_URL
+    from app.routes.openstates_proxy import OPENSTATES_SERVICE_URL
+    from app.services.downstream_openapi import merge_ddp_sync, merge_openstates
+
+    spec = get_openapi(
         title="DDP-API",
         version="2.0.0",
         description="Digital Democracy Project API — auth gateway and service proxy",
         routes=[r for r in app.routes if not getattr(r, "path", "").startswith("/admin")],
         tags=TAGS_METADATA,
     )
+    await merge_ddp_sync(spec, DDP_SYNC_SERVICE_URL)
+    await merge_openstates(spec, OPENSTATES_SERVICE_URL)
+    return spec
 
 
 @app.get("/docs", include_in_schema=False)
