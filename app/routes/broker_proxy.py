@@ -34,6 +34,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["broker"])
 
+# This proxy forwards the request body verbatim and validates nothing itself;
+# only ddp-broker-py can return a 422. Declaring it here (with no schema)
+# suppresses FastAPI's default HTTPValidationError placeholder in the docs.
+_NO_VALIDATION_422 = {
+    422: {"description": "Not returned by this proxy. Any 422 comes from ddp-broker-py itself."}
+}
+
 EC2_BROKER_SERVICE_URL = os.getenv("EC2_BROKER_SERVICE_URL", "http://localhost:8080")
 
 
@@ -93,6 +100,7 @@ async def _forward(request: Request, path: str) -> Response:
     "/broker/{path:path}",
     operation_id="proxy_broker_read",
     summary="Forward a read to ddp-broker-py",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_broker_read(
     request: Request,
@@ -107,16 +115,19 @@ async def proxy_broker_read(
     "/broker/{path:path}",
     operation_id="proxy_broker_create",
     summary="Forward a write to ddp-broker-py",
+    responses=_NO_VALIDATION_422,
 )
 @router.put(
     "/broker/{path:path}",
     operation_id="proxy_broker_replace",
     summary="Forward a write to ddp-broker-py",
+    responses=_NO_VALIDATION_422,
 )
 @router.delete(
     "/broker/{path:path}",
     operation_id="proxy_broker_delete",
     summary="Forward a delete to ddp-broker-py",
+    responses=_NO_VALIDATION_422,
 )
 async def proxy_broker_write(
     request: Request,
