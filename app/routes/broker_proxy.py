@@ -1,7 +1,8 @@
 """Catch-all proxy for production ddp-broker-py.
 
 All requests to /broker/* are forwarded verbatim to production ddp-broker-py
-(EC2 broker, once it joins the WireGuard mesh) or to a local dev instance
+-- its own EC2 instance, reachable over WireGuard at 10.0.0.11 (see
+EC2_BROKER_SERVICE_URL in .env.example) -- or to a local dev instance
 (default). The Mac Studio's ddp-sync instance is not reachable from EC2
 broker directly today — this proxy is the relay, mirroring
 openstates_proxy.py's own "make an otherwise-unreachable service available"
