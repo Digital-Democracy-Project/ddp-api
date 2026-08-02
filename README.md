@@ -278,7 +278,7 @@ curl -s -X POST $BASE/admin/keys/key_abc123/rotate \
 | `DDP_SYNC_SERVICE_URL` | DDP-Sync HTTP service URL | `http://localhost:8001` |
 | `DDP_SYNC_API_KEY` | API key for DDP-Sync authentication (fallback) | (in Secrets Manager) |
 | `OPENSTATES_SERVICE_URL` | Local OpenStates api-v3 URL (Mac Studio via WireGuard) | `http://10.0.0.8:8002` |
-| `EC2_BROKER_SERVICE_URL` | Production `ddp-broker-py` URL | `http://localhost:8080` |
+| `EC2_BROKER_SERVICE_URL` | Production `ddp-broker-py` URL — separate EC2 instance, over WireGuard | `http://10.0.0.11:8080` |
 | `DDP_BROKER_API_TOKEN` | This proxy's own downstream credential for `ddp-broker-py` (fallback; prefer Secrets Manager `ddp_broker_api_token`) | (in Secrets Manager) |
 | `VOATZ_API_BASE_URL` | Voatz API base URL | `https://api.voatz.com` |
 | `VOATZ_API_ORIGIN` | Origin header for Voatz API requests | `https://api.voatz.com` |
