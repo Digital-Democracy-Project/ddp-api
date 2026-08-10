@@ -45,8 +45,12 @@ _RETRY_DELAY_SECONDS = 0.5
 
 
 async def _forward(request: Request, path: str) -> Response:
-    # Strip any incoming apikey param — callers authenticate via the ddp-api bearer token
-    params = {k: v for k, v in request.query_params.items() if k != "apikey"}
+    # Strip any incoming apikey param — callers authenticate via the ddp-api bearer token.
+    # Must stay a list of (key, value) tuples, not a dict: query strings like
+    # ?include=votes&include=actions carry multiple values under the same key, and a
+    # dict comprehension would silently keep only the last one, dropping the rest
+    # before the request ever reaches api-v3 (API-1).
+    params = [(k, v) for k, v in request.query_params.multi_items() if k != "apikey"]
     body = await request.body()
     headers = {
         "Content-Type": request.headers.get("content-type", "application/json"),
