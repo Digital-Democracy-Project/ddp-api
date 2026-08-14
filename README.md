@@ -18,6 +18,7 @@ nginx (:80/443)
 This proxy handles:
 - **VoteBot Chat Proxy** - Proxy chat requests to the VoteBot RAG service (HTTP, SSE streaming, WebSocket)
 - **DDP-Sync Proxy** - Catch-all proxy forwarding `/sync/*` and `/trigger/*` to DDP-Sync (new endpoints in DDP-Sync are automatically available — no DDP-API code changes needed)
+- **LegBot Proxy** - On-demand `analyze_bill` dispatch/poll proxy to CAMS, for ddp-next's interactive bill-analysis UX
 - **Voatz API** - Proxy authentication and pre-authenticated wrappers for read-only consumers
 - **Event Management** - List and create events via Voatz API
 - **Brevo Segment Updates** - Bulk update contact attributes in Brevo segments
@@ -42,11 +43,13 @@ DDP-API/
 │   │   ├── votebot.py       # VoteBot chat proxy endpoints
 │   │   ├── webflow.py       # Webflow CMS management endpoints
 │   │   ├── openstates_proxy.py # Catch-all proxy for DDP's own OpenStates api-v3 instance (WireGuard)
-│   │   └── broker_proxy.py  # Catch-all proxy for production ddp-broker-py
+│   │   ├── broker_proxy.py  # Catch-all proxy for production ddp-broker-py
+│   │   └── legbot_proxy.py  # On-demand LegBot analyze_bill dispatch/poll proxy to CAMS (WireGuard)
 │   ├── schemas/
 │   │   ├── common.py        # Pydantic request/response models
 │   │   ├── admin.py         # Admin key management models
-│   │   └── webflow.py       # Webflow request/response models
+│   │   ├── webflow.py       # Webflow request/response models
+│   │   └── legbot.py        # LegBot analyze_bill dispatch request model
 │   └── services/
 │       ├── voatz.py         # Voatz HTTP client (shared by routes and wrappers)
 │       └── key_store.py     # In-memory API key store backed by Secrets Manager
@@ -173,6 +176,19 @@ Forwards to production `ddp-broker-py`. The proxy holds its own downstream crede
 
 Same live-schema merge as the DDP-Sync and OpenStates proxies above: `/docs` shows every real ddp-broker-py route (`/broker/api/bills/`, `/broker/api/bill-artifacts/`, etc.) with its actual schema, remounted under `/broker`. ddp-broker-py is Django + drf-spectacular (schema at `/api/schema/`, not `/openapi.json`) — falls back to the generic catch-all shape if it's unreachable.
 
+### LegBot Proxy Endpoints
+
+On-demand LegBot `analyze_bill` dispatch for ddp-next's interactive UX (e.g. "explain this bill" / "pros and cons" on a bill page) — distinct from ddp-sync's existing scheduled batch generation. Proxies to CAMS's generic task API (Mac Studio, over WireGuard), the same interface `dispatch_legbot` and ddp-sync's `legbot_client.py` already use. Unlike the catch-all proxies above, `bot`/`task_type` are fixed server-side here, not caller-supplied — this route can only ever dispatch `legbot`/`analyze_bill` tasks.
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/legbot/tasks` | POST | **Write** | Dispatch an `analyze_bill` task (`question_type` + question-specific fields, e.g. `bill_source`) |
+| `/legbot/tasks/{task_id}` | GET | Read | Poll a dispatched task's status |
+
+**Async, not synchronous:** `POST /legbot/tasks` returns as soon as CAMS queues the task — it does not wait on LegBot's MLX response (cold-start can take up to ~90s, and tasks may queue behind `legbot/reasoning.py`'s single-slot semaphore, shared with Agent Smith's interactive Slack traffic — accepted as-is for launch). Callers dispatch, show an "analyzing…" state, and poll `GET /legbot/tasks/{task_id}` for status.
+
+**Known limitation:** CAMS's task-status endpoint currently returns only `{"status": ...}` — the actual answer is written to CAMS's local `artifacts/{task_id}/task_result.json`, read directly off the filesystem by ddp-sync's `legbot_client.py` and Agent Smith's own `get_task_artifacts` (both run on the same box as CAMS). ddp-api runs on EC2, so it cannot read that file. This proxy forwards CAMS's response verbatim, so once CAMS exposes the result over HTTP, ddp-next will start receiving it here with no ddp-api code changes — but until then, polling only surfaces status transitions, not the answer content.
+
 ### Webflow CMS Endpoints
 
 #### Fill endpoints
@@ -280,6 +296,8 @@ curl -s -X POST $BASE/admin/keys/key_abc123/rotate \
 | `OPENSTATES_SERVICE_URL` | Local OpenStates api-v3 URL (Mac Studio via WireGuard) | `http://10.0.0.8:8002` |
 | `EC2_BROKER_SERVICE_URL` | Production `ddp-broker-py` URL — separate EC2 instance, over WireGuard | `http://10.0.0.11:8080` |
 | `DDP_BROKER_API_TOKEN` | This proxy's own downstream credential for `ddp-broker-py` (fallback; prefer Secrets Manager `ddp_broker_api_token`) | (in Secrets Manager) |
+| `CAMS_SERVICE_URL` | CAMS task API URL (Mac Studio, same box as the local OpenStates instance — WireGuard) | `http://10.0.0.8:8000` |
+| `CAMS_API_TOKEN` | This proxy's own downstream credential for CAMS (fallback; prefer Secrets Manager `cams_api_token`) | (in Secrets Manager) |
 | `VOATZ_API_BASE_URL` | Voatz API base URL | `https://api.voatz.com` |
 | `VOATZ_API_ORIGIN` | Origin header for Voatz API requests | `https://api.voatz.com` |
 | `WEBFLOW_API_TOKEN` | Webflow CMS API token | (required for Webflow) |
