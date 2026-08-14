@@ -211,7 +211,7 @@
   <div class="legend-item"><div class="legend-dot dot-write"></div> Write scope only</div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ NO AUTH -->
+<!-- ══════════════════════════════════════════ NO AUTH -->
 <div class="scope-section scope-none">
   <div class="scope-header">
     <span class="scope-badge">No Auth</span>
@@ -250,7 +250,7 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ ADMIN -->
+<!-- ══════════════════════════════════════════ ADMIN -->
 <div class="scope-section scope-admin">
   <div class="scope-header">
     <span class="scope-badge">Admin</span>
@@ -276,7 +276,7 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ READ -->
+<!-- ══════════════════════════════════════════ READ -->
 <div class="scope-section scope-read">
   <div class="scope-header">
     <span class="scope-badge">Read</span>
@@ -358,10 +358,22 @@
       </div>
     </div>
 
+    <div class="card">
+      <div class="card-title">LegBot Proxy — Poll <span class="backend-tag">CAMS</span></div>
+      <div class="endpoint">
+        <span class="method GET">GET</span>
+        <span class="path">/legbot/tasks/<span class="param">{task_id}</span></span>
+        <span class="new-badge">NEW</span>
+      </div>
+      <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
+        <span style="font-size:11px; color:#888; font-style:italic;">Poll status for an on-demand LegBot analyze_bill task.<br>Forwarded verbatim from CAMS's task-status response.</span>
+      </div>
+    </div>
+
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════ WRITE -->
+<!-- ══════════════════════════════════════════ WRITE -->
 <div class="scope-section scope-write">
   <div class="scope-header">
     <span class="scope-badge">Write</span>
@@ -421,6 +433,14 @@
       <div class="endpoint"><span class="method POST">POST</span><span class="path">/broker/<span class="param">{path}</span></span><span class="new-badge">NEW</span></div>
       <div class="endpoint"><span class="method PUT">PUT</span><span class="path">/broker/<span class="param">{path}</span></span><span class="new-badge">NEW</span></div>
       <div class="endpoint"><span class="method DELETE">DELETE</span><span class="path">/broker/<span class="param">{path}</span></span><span class="new-badge">NEW</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">LegBot Proxy — Dispatch <span class="backend-tag">CAMS</span></div>
+      <div class="endpoint"><span class="method POST">POST</span><span class="path">/legbot/tasks</span><span class="new-badge">NEW</span></div>
+      <div class="endpoint" style="padding-top:8px; border-top: 1px dashed #e0e0e0;">
+        <span style="font-size:11px; color:#888; font-style:italic;">Dispatch an on-demand analyze_bill task (bot/task_type fixed server-side).<br>Async — returns a task_id immediately, does not wait on MLX.</span>
+      </div>
     </div>
 
   </div>
