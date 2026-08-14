@@ -91,6 +91,26 @@ Issued keys are prefixed for at-a-glance identification:
 
 `DELETE /admin/keys/{key_id}` takes effect immediately in the running process. Other instances pick up the change within 60 seconds (TTL cache). For immediate propagation across all instances, call `POST /admin/reload` after revoking.
 
+### Restrictions
+
+`restrictions` on `POST /admin/keys` supports two independent, optional sub-keys — both enforced at request time, not just stored:
+
+| Restriction | Enforced by | Effect |
+|-------------|-------------|--------|
+| `org_ids` | `_check_org_access` (`app/routes/voatz.py`) | Limits the Voatz pre-authenticated wrappers (`/voatz/users/{org_id}`, `/voatz/events/{org_id}`) to the listed `org_id` values |
+| `endpoints` | `_check_endpoint_access` (`app/middleware/auth.py`, called from `write_auth`/`read_auth`) | Limits the key to the listed route prefixes — checked centrally for **every** route in the app that requires a read or write key |
+
+`endpoints` uses **path-prefix matching**: `{"endpoints": ["/broker"]}` matches `/broker` itself and any `/broker/...` sub-path, but not an unrelated path that merely shares a string prefix (e.g. `/brokerage`). Multiple prefixes are OR'd together. A key with no `endpoints` restriction (the default) is unaffected and can reach any route its scope allows — this is what makes the restriction backward-compatible with existing unrestricted keys.
+
+```bash
+# Write key scoped only to the ddp-broker-py proxy — cannot hit /sync/*, /trigger/*, or Voatz routes
+curl -X POST http://localhost:5000/admin/keys \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"name": "ddp-sync broker writer", "scopes": ["write"], "restrictions": {"endpoints": ["/broker"]}}'
+```
+
+Admin-scoped keys (`/admin/*`) are not subject to `endpoints` restrictions — key management is intentionally out of scope for this check.
+
 ## Endpoints
 
 ### Key Management (Admin)
@@ -120,7 +140,7 @@ Admin endpoints are only visible at `/admin/docs` (requires an admin-scoped key)
 
 #### Pre-authenticated wrappers — no Voatz credentials needed
 
-Callers need only a DDP-API read key and an `org_id`. The server fetches Voatz tokens from its own config. Useful for dev environments that should not hold Voatz credentials. If a key has an `org_ids` restriction, requests for other orgs return 403.
+Callers need only a DDP-API read key and an `org_id`. The server fetches Voatz tokens from its own config. Useful for dev environments that should not hold Voatz credentials. If a key has an `org_ids` restriction, requests for other orgs return 403. If a key has an `endpoints` restriction that excludes `/voatz`, all Voatz routes (including these wrappers) return 403 — see [Restrictions](#restrictions).
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|

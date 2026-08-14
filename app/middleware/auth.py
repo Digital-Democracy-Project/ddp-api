@@ -3,6 +3,10 @@
 The key store is the primary auth path. The env-var tokens (API_BEARER_TOKEN,
 API_READ_ONLY_TOKEN) remain as a backward-compatible fallback for bootstrapping
 and are retired once managed keys are issued to all callers.
+
+restrictions.endpoints is enforced centrally here (in write_auth/read_auth)
+rather than per-route, since every proxied route in the app already depends
+on one of these two functions — see _check_endpoint_access().
 """
 
 import hashlib
@@ -11,7 +15,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 logger = logging.getLogger(__name__)
@@ -37,6 +41,28 @@ def _check_expired(key) -> bool:
         return False
     expires = datetime.fromisoformat(key.expires_at.replace("Z", "+00:00"))
     return datetime.now(timezone.utc) > expires
+
+
+def _check_endpoint_access(key, path: str) -> None:
+    """Raise 403 if the key has an endpoints restriction that excludes this path.
+
+    Path-prefix matching: a restriction of "/broker" matches "/broker" itself
+    and any "/broker/..." sub-path, but not "/brokerage" or other paths that
+    merely share a string prefix. A key with no "endpoints" restriction (the
+    common case) is unaffected — same no-op-when-unset semantics as
+    voatz.py's _check_org_access for "org_ids".
+    """
+    allowed = getattr(key, "restrictions", {}).get("endpoints")
+    if not allowed:
+        return
+    for prefix in allowed:
+        prefix = prefix.rstrip("/")
+        if path == prefix or path.startswith(prefix + "/"):
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Key not authorized for this endpoint",
+    )
 
 
 async def _resolve(credentials: HTTPAuthorizationCredentials):
@@ -74,6 +100,7 @@ async def _resolve(credentials: HTTPAuthorizationCredentials):
 
 
 async def write_auth(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     """Require write scope. Use on endpoints that mutate data."""
@@ -83,10 +110,12 @@ async def write_auth(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Write access required",
         )
+    _check_endpoint_access(key, request.url.path)
     return key
 
 
 async def read_auth(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     """Require read scope. Write scope also satisfies this check."""
@@ -96,6 +125,7 @@ async def read_auth(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Read access required",
         )
+    _check_endpoint_access(key, request.url.path)
     return key
 
 
