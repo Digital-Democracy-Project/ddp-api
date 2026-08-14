@@ -201,6 +201,27 @@ def test_org_restricted_key_accepted_for_allowed_org(key_store_with_test_keys, t
 
 
 # ---------------------------------------------------------------------------
+# Endpoint restrictions
+# ---------------------------------------------------------------------------
+
+def test_endpoint_restrictions_round_trip_through_issue_and_list(key_store_with_test_keys, test_client):
+    keys = key_store_with_test_keys
+    h    = {"Authorization": f"Bearer {keys['admin']}"}
+    issue = test_client.post(
+        "/admin/keys",
+        json={"name": "Endpoint restricted", "scopes": ["write"], "restrictions": {"endpoints": ["/broker"]}},
+        headers=h,
+    )
+    assert issue.status_code == 200
+    body = issue.json()
+    assert body["restrictions"] == {"endpoints": ["/broker"]}
+
+    listed = test_client.get("/admin/keys", headers=h).json()
+    entry  = next(k for k in listed["keys"] if k["id"] == body["id"])
+    assert entry["restrictions"] == {"endpoints": ["/broker"]}
+
+
+# ---------------------------------------------------------------------------
 # Rotation
 # ---------------------------------------------------------------------------
 
