@@ -40,6 +40,7 @@ class ApiKey:
         self.prefix       = data["prefix"]
         self.scopes       = data.get("scopes", [])
         self.restrictions = data.get("restrictions", {})
+        self.environment  = data.get("environment")
         self.created_at   = data["created_at"]
         self.expires_at   = data.get("expires_at")
         self.last_used_at = data.get("last_used_at")
@@ -52,6 +53,7 @@ class ApiKey:
             "prefix":       self.prefix,
             "scopes":       self.scopes,
             "restrictions": self.restrictions,
+            "environment":  self.environment,
             "created_at":   self.created_at,
             "expires_at":   self.expires_at,
             "last_used_at": self.last_used_at,
@@ -106,6 +108,7 @@ class KeyStore:
         name: str,
         scopes: list,
         restrictions: dict,
+        environment: Optional[str] = None,
         expires_at: Optional[str] = None,
     ) -> tuple:
         """Generate a new key, persist to config source, update cache. Returns (plaintext, ApiKey)."""
@@ -128,6 +131,7 @@ class KeyStore:
             "prefix":       prefix,
             "scopes":       scopes,
             "restrictions": restrictions or {},
+            "environment":  environment,
             "created_at":   now,
             "expires_at":   expires_at,
             "last_used_at": None,
@@ -170,6 +174,7 @@ class KeyStore:
             name=f"{old_key.name} (rotated)",
             scopes=old_key.scopes,
             restrictions=old_key.restrictions,
+            environment=old_key.environment,
             expires_at=None,
         )
 

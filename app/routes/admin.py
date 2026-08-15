@@ -34,6 +34,7 @@ async def issue_key(req: IssueKeyRequest, _key=Depends(admin_auth)):
         name=req.name,
         scopes=req.scopes,
         restrictions=req.restrictions or {},
+        environment=req.environment,
         expires_at=req.expires_at,
     )
     return IssueKeyResponse(
@@ -42,6 +43,7 @@ async def issue_key(req: IssueKeyRequest, _key=Depends(admin_auth)):
         name=key.name,
         scopes=key.scopes,
         restrictions=key.restrictions,
+        environment=key.environment,
         created_at=key.created_at,
         expires_at=key.expires_at,
         message="Store this key securely — it will not be shown again.",
