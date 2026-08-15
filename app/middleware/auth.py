@@ -28,6 +28,7 @@ class _EnvVarKey:
         self.id           = "env-var"
         self.scopes       = scopes
         self.restrictions = {}
+        self.environment  = None
         self.expires_at   = None
         self.last_used_at = None
 
