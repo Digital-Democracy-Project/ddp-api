@@ -40,12 +40,27 @@ def _get_ddp_sync_api_key() -> str:
         return os.getenv("DDP_SYNC_API_KEY", "")
 
 
-async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
-    """Forward a request to ddp-sync and return the response."""
+async def _forward_to_ddp_sync(request: Request, path: str, environment: str | None = None) -> Response:
+    """Forward a request to ddp-sync and return the response.
+
+    environment (dev/prod, from the resolved key's own tag -- API-5) is
+    stamped as X-DDP-Environment when present, never touching the JSON body
+    a caller already controls. Unset/None (existing keys, admin keys,
+    env-var tokens) sends no such header at all -- ddp-sync's own SYNC-10
+    routing treats a missing header as "not environment-aware," not as an
+    empty/invalid value.
+    """
     api_key = _get_ddp_sync_api_key()
 
     # POST sync requests can be long-running (bill batch sync)
     timeout = 300.0 if request.method == "POST" else 30.0
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": request.headers.get("content-type", "application/json"),
+    }
+    if environment:
+        headers["X-DDP-Environment"] = environment
 
     try:
         async with httpx.AsyncClient(
@@ -55,10 +70,7 @@ async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
             response = await client.request(
                 method=request.method,
                 url=f"/ddp-sync/v1/{path}",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": request.headers.get("content-type", "application/json"),
-                },
+                headers=headers,
                 content=await request.body(),
                 params=request.query_params,
             )
@@ -87,10 +99,10 @@ async def _forward_to_ddp_sync(request: Request, path: str) -> Response:
 async def proxy_sync_read(
     request: Request,
     path: str,
-    token: str = Depends(read_auth),
+    key=Depends(read_auth),
 ):
     """Forward GET /sync/* requests to ddp-sync (read-only token accepted)."""
-    return await _forward_to_ddp_sync(request, f"sync/{path}")
+    return await _forward_to_ddp_sync(request, f"sync/{path}", environment=key.environment)
 
 
 @router.post(
@@ -114,10 +126,10 @@ async def proxy_sync_read(
 async def proxy_sync_write(
     request: Request,
     path: str,
-    token: str = Depends(write_auth),
+    key=Depends(write_auth),
 ):
     """Forward POST/PUT/DELETE /sync/* requests to ddp-sync (write token required)."""
-    return await _forward_to_ddp_sync(request, f"sync/{path}")
+    return await _forward_to_ddp_sync(request, f"sync/{path}", environment=key.environment)
 
 
 @router.get(
@@ -129,10 +141,10 @@ async def proxy_sync_write(
 async def proxy_trigger_read(
     request: Request,
     path: str,
-    token: str = Depends(read_auth),
+    key=Depends(read_auth),
 ):
     """Forward GET /trigger/* requests to ddp-sync (read-only token accepted)."""
-    return await _forward_to_ddp_sync(request, f"trigger/{path}")
+    return await _forward_to_ddp_sync(request, f"trigger/{path}", environment=key.environment)
 
 
 @router.post(
@@ -144,7 +156,7 @@ async def proxy_trigger_read(
 async def proxy_trigger_write(
     request: Request,
     path: str,
-    token: str = Depends(write_auth),
+    key=Depends(write_auth),
 ):
     """Forward POST /trigger/* requests to ddp-sync (write token required)."""
-    return await _forward_to_ddp_sync(request, f"trigger/{path}")
+    return await _forward_to_ddp_sync(request, f"trigger/{path}", environment=key.environment)
