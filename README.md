@@ -111,6 +111,18 @@ curl -X POST http://localhost:5000/admin/keys \
 
 Admin-scoped keys (`/admin/*`) are not subject to `endpoints` restrictions — key management is intentionally out of scope for this check.
 
+### Environment tag
+
+`environment` on `POST /admin/keys` is an independent, optional tag — `"dev"`, `"prod"`, or unset (`null`) — separate from `restrictions` and not itself an access-control mechanism. It exists so the DDP-Sync proxy can tell **which** deployment (dev vs. prod `ddp-next`) issued a given request, and stamp that onto the forwarded request as a trusted `X-DDP-Environment` header — never a value the caller claims in its own request body. `ddp-sync`'s on-demand LegBot dispatch endpoint (SYNC-10) reads this header to route the result to the matching `ddp-broker-py` instance.
+
+```bash
+curl -X POST http://localhost:5000/admin/keys \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -d '{"name": "ddp-next dev", "scopes": ["read", "write"], "environment": "dev"}'
+```
+
+Unset (the default — every existing key) sends no `X-DDP-Environment` header at all, not an empty or null value. Rotating an environment-tagged key preserves the tag on the replacement key. This tag is not enforced anywhere on the `ddp-api` side — it is purely a pass-through signal for `ddp-sync` to consume.
+
 ## Endpoints
 
 ### Key Management (Admin)
@@ -168,6 +180,8 @@ These routes forward to DDP-Sync (:8001) automatically. New DDP-Sync endpoints a
 | `/trigger/{path}` | POST | **Write** | Forward to DDP-Sync `/ddp-sync/v1/trigger/{path}` |
 
 Common paths: `/sync/unified` (trigger sync), `/sync/unified/status/{id}` (poll status), `/trigger/user-sync` (Voatz→Brevo sync).
+
+If the resolved key carries an `environment` tag (`"dev"`/`"prod"` — see [Environment tag](#environment-tag)), it is forwarded as an `X-DDP-Environment` header on the outgoing request to `ddp-sync`. Keys with no tag send no such header.
 
 `/docs` shows DDP-Sync's real request/response schemas here, not just the generic `{path}` shape — `public_openapi()` fetches DDP-Sync's own `/openapi.json` at doc-generation time (cached 5 min) and splices its `/sync/*`/`/trigger/*` paths in. Falls back to the generic catch-all shape if DDP-Sync is unreachable. See `app/services/downstream_openapi.py`.
 
@@ -610,6 +624,18 @@ curl -s -X POST $BASE/admin/keys \
   -H "Authorization: Bearer $BOOTSTRAP" \
   -H "Content-Type: application/json" \
   -d '{"name": "VoteBot dev", "scopes": ["read"], "restrictions": {"org_ids": ["800000001"]}}'
+
+# Write key for dev ddp-next (on-demand LegBot dispatch — SYNC-10/API-5)
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $BOOTSTRAP" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "ddp-next dev", "scopes": ["read", "write"], "environment": "dev"}'
+
+# Write key for prod ddp-next (issue once a real production ddp-next/ddp-broker-py exists)
+curl -s -X POST $BASE/admin/keys \
+  -H "Authorization: Bearer $BOOTSTRAP" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "ddp-next prod", "scopes": ["read", "write"], "environment": "prod"}'
 ```
 
 Once all callers have migrated to managed keys, remove `API_BEARER_TOKEN` and `API_READ_ONLY_TOKEN` from `.env` and restart the service.
