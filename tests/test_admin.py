@@ -222,6 +222,46 @@ def test_endpoint_restrictions_round_trip_through_issue_and_list(key_store_with_
 
 
 # ---------------------------------------------------------------------------
+# Environment tag (API-5)
+# ---------------------------------------------------------------------------
+
+def test_environment_tag_round_trips_through_issue_and_list(key_store_with_test_keys, test_client):
+    keys = key_store_with_test_keys
+    h    = {"Authorization": f"Bearer {keys['admin']}"}
+    issue = test_client.post(
+        "/admin/keys",
+        json={"name": "Dev ddp-next", "scopes": ["read", "write"], "environment": "dev"},
+        headers=h,
+    )
+    assert issue.status_code == 200
+    body = issue.json()
+    assert body["environment"] == "dev"
+
+    listed = test_client.get("/admin/keys", headers=h).json()
+    entry  = next(k for k in listed["keys"] if k["id"] == body["id"])
+    assert entry["environment"] == "dev"
+
+
+def test_environment_tag_defaults_to_null_when_unset(key_store_with_test_keys, test_client):
+    keys = key_store_with_test_keys
+    h    = {"Authorization": f"Bearer {keys['admin']}"}
+    issue = test_client.post("/admin/keys", json={"name": "No env", "scopes": ["read"]}, headers=h)
+    assert issue.status_code == 200
+    assert issue.json()["environment"] is None
+
+
+def test_invalid_environment_value_returns_422(key_store_with_test_keys, test_client):
+    keys = key_store_with_test_keys
+    h    = {"Authorization": f"Bearer {keys['admin']}"}
+    resp = test_client.post(
+        "/admin/keys",
+        json={"name": "Bad env", "scopes": ["read"], "environment": "staging"},
+        headers=h,
+    )
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Rotation
 # ---------------------------------------------------------------------------
 
@@ -237,6 +277,28 @@ def test_rotate_key(key_store_with_test_keys, test_client):
     assert body["old_key_id"] == key_id
     assert body["new_key"].startswith("ddp-ro-")
     assert "will not be shown again" in body["message"]
+
+
+def test_rotate_preserves_environment_tag(key_store_with_test_keys, test_client):
+    """KeyStore.rotate() calls issue() internally -- it must forward the old
+    key's environment tag, or rotating a dev/prod-tagged key would silently
+    strip it."""
+    keys = key_store_with_test_keys
+    h    = {"Authorization": f"Bearer {keys['admin']}"}
+    issue = test_client.post(
+        "/admin/keys",
+        json={"name": "Prod ddp-next", "scopes": ["read", "write"], "environment": "prod"},
+        headers=h,
+    )
+    key_id = issue.json()["id"]
+
+    rotate = test_client.post(f"/admin/keys/{key_id}/rotate", json={"grace_hours": 1}, headers=h)
+    assert rotate.status_code == 200
+    new_key_id = rotate.json()["new_key_id"]
+
+    listed = test_client.get("/admin/keys", headers=h).json()
+    entry  = next(k for k in listed["keys"] if k["id"] == new_key_id)
+    assert entry["environment"] == "prod"
 
 
 # ---------------------------------------------------------------------------
