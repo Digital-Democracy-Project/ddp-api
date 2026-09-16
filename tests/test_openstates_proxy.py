@@ -202,13 +202,33 @@ class TestOpenstatesProxyForwarding:
 
     def test_never_forwards_the_callers_own_ddp_api_token(self, test_client, read_only_headers):
         """The caller's ddp-api bearer token must never reach api-v3 -- only
-        this proxy's own internal UUID key is sent downstream."""
+        this proxy's own internal key is sent downstream."""
         mock_cm, mock_client, _ = _mock_httpx_client()
         with patch("app.routes.openstates_proxy.httpx.AsyncClient", return_value=mock_cm):
             test_client.get("/openstates/bills", headers=read_only_headers)
         _, kwargs = mock_client.request.call_args
         assert kwargs["headers"]["x-api-key"] == "00000000-0000-0000-0000-000000000001"
         assert read_only_headers["Authorization"] not in kwargs["headers"].values()
+
+    def test_internal_key_is_read_from_openstates_proxy_key_env_var(self, test_client, read_only_headers):
+        """OPENSTATES_PROXY_KEY is a module-level constant evaluated at import
+        time (same reason config.py's LOCAL_CONFIG_PATH is patched directly in
+        conftest.py rather than via monkeypatch.setenv) -- switching
+        OPENSTATES_SERVICE_URL to a different api-v3 instance doesn't carry
+        this key's registration over with it, so it must be independently
+        configurable rather than always sending the hardcoded default."""
+        import app.routes.openstates_proxy as openstates_proxy
+
+        original_key = openstates_proxy._OPENSTATES_INTERNAL_KEY
+        openstates_proxy._OPENSTATES_INTERNAL_KEY = "some-other-registered-key"
+        try:
+            mock_cm, mock_client, _ = _mock_httpx_client()
+            with patch("app.routes.openstates_proxy.httpx.AsyncClient", return_value=mock_cm):
+                test_client.get("/openstates/bills", headers=read_only_headers)
+            _, kwargs = mock_client.request.call_args
+            assert kwargs["headers"]["x-api-key"] == "some-other-registered-key"
+        finally:
+            openstates_proxy._OPENSTATES_INTERNAL_KEY = original_key
 
     def test_get_body_and_status_code_passed_through_verbatim(self, test_client, read_only_headers):
         mock_cm, mock_client, _ = _mock_httpx_client(

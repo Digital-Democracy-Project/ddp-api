@@ -1,15 +1,18 @@
 """Catch-all proxy for DDP's own self-hosted OpenStates api-v3 instance.
 
 This is DDP's own fork of openstates/api-v3, running DDP's own scrapers
-against DDP's own database on the Mac Studio (10.0.0.8:8002, over
-WireGuard) -- it reuses api-v3's schema/codebase but is NOT the public
-openstates.org API and holds no upstream openstates.org data. The Mac
-Studio is not reachable from all EC2 instances directly -- this proxy
-makes it available to services (e.g. ddp-broker-py) that don't have
-WireGuard configured.
+against DDP's own database -- it reuses api-v3's schema/codebase but is NOT
+the public openstates.org API and holds no upstream openstates.org data.
+Which instance that is (Mac Studio dev, or the production EC2/RDS instance)
+is controlled entirely by OPENSTATES_SERVICE_URL -- not hardcoded here --
+since some services that need this data (e.g. ddp-broker-py) don't have
+WireGuard configured to reach it directly.
 
 Auth: standard ddp-api bearer token (same as every other route).
-The local UUID key is injected when forwarding to api-v3 internally.
+The internal key is injected when forwarding to api-v3 internally; it comes
+from OPENSTATES_PROXY_KEY and must match a row in the target instance's own
+`profiles_profile` table, or api-v3 will reject it with a 401 regardless of
+whether OPENSTATES_SERVICE_URL points at the right host.
 """
 
 import asyncio
@@ -33,9 +36,10 @@ _NO_VALIDATION_422 = {
 }
 
 OPENSTATES_SERVICE_URL = os.getenv("OPENSTATES_SERVICE_URL", "http://10.0.0.8:8002")
-# Internal UUID key for the local api-v3 instance. Not a secret — only reachable
-# over WireGuard. Sent as x-api-key header so callers never need to supply it.
-_OPENSTATES_INTERNAL_KEY = "00000000-0000-0000-0000-000000000001"
+# Internal key for the target api-v3 instance. Only reachable over WireGuard,
+# and must be registered in that instance's own `profiles_profile` table.
+# Sent as x-api-key header so callers never need to supply it.
+_OPENSTATES_INTERNAL_KEY = os.getenv("OPENSTATES_PROXY_KEY", "00000000-0000-0000-0000-000000000001")
 
 # OPEN-39: a bare ConnectError (WireGuard blip, api-v3 container mid-restart) is usually
 # gone within a second -- one bounded retry absorbs that without turning a routine restart
