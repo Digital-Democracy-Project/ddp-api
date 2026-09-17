@@ -187,12 +187,12 @@ If the resolved key carries an `environment` tag (`"dev"`/`"prod"` — see [Envi
 
 ### DDP-OpenStates Proxy Endpoints
 
-> **This is DDP's own self-hosted OpenStates api-v3 instance — not the public openstates.org API.** It runs DDP's own scrapers against DDP's own database on the Mac Studio; it just reuses the api-v3 schema/codebase. No upstream openstates.org data lives here.
+> **This is DDP's own self-hosted OpenStates api-v3 instance — not the public openstates.org API.** It runs DDP's own scrapers against DDP's own database; it just reuses the api-v3 schema/codebase. No upstream openstates.org data lives here. Which physical instance that is (Mac Studio dev, or the production Fargate/EC2/RDS instance) is controlled entirely by `OPENSTATES_SERVICE_URL` — see [Environment Variables](#environment-variables) — not fixed to any one host.
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/openstates/{path}` | GET | Read | Forward to DDP's own OpenStates api-v3 instance (Mac Studio via WireGuard) |
-| `/openstates/{path}` | POST | **Write** | Forward to DDP's own OpenStates api-v3 instance (Mac Studio via WireGuard) |
+| `/openstates/{path}` | GET | Read | Forward to whichever OpenStates api-v3 instance `OPENSTATES_SERVICE_URL` points at |
+| `/openstates/{path}` | POST | **Write** | Forward to whichever OpenStates api-v3 instance `OPENSTATES_SERVICE_URL` points at |
 
 Same live-schema merge as the DDP-Sync proxy above: `/docs` shows every real api-v3 route (`/openstates/bills`, `/openstates/people`, etc.) with its actual schema, remounted under `/openstates`, tagged `ddp-openstates`, and prefixed with a "not the public API" banner on every operation. api-v3 has no path restriction, so all of its routes are reachable this way. Falls back to the generic catch-all shape if api-v3/WireGuard is unreachable.
 
