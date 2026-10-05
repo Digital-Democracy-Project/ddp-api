@@ -89,9 +89,19 @@ async def lifespan(app: FastAPI):
     logger.info("DDP-API shutdown")
 
 
+# Shown at the top of the public Swagger UI. "Try it out" needs a bearer token
+# (nearly every endpoint requires one), so say so where people will see it.
+PUBLIC_API_DESCRIPTION = (
+    "Digital Democracy Project API — auth gateway and service proxy.\n\n"
+    "**Trying endpoints from this page:** click **Authorize** (top right) and paste "
+    "your DDP API key. Without a key, \"Try it out\" returns `401 Not authenticated`. "
+    "Keys are issued by a DDP admin."
+)
+
+
 app = FastAPI(
     title="DDP-API",
-    description="Digital Democracy Project API — auth gateway and service proxy",
+    description=PUBLIC_API_DESCRIPTION,
     version="2.0.0",
     lifespan=lifespan,
     # Docs are served via custom routes below so we can split public vs admin schemas
@@ -141,7 +151,7 @@ async def public_openapi():
     spec = get_openapi(
         title="DDP-API",
         version="2.0.0",
-        description="Digital Democracy Project API — auth gateway and service proxy",
+        description=PUBLIC_API_DESCRIPTION,
         routes=[r for r in app.routes if not getattr(r, "path", "").startswith("/admin")],
         tags=TAGS_METADATA,
     )
@@ -154,7 +164,11 @@ async def public_openapi():
 @app.get("/docs", include_in_schema=False)
 async def public_docs():
     from fastapi.openapi.docs import get_swagger_ui_html
-    return get_swagger_ui_html(openapi_url="/openapi.json", title="DDP-API")
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title="DDP-API",
+        swagger_ui_parameters={"persistAuthorization": True},
+    )
 
 
 @app.get("/redoc", include_in_schema=False)
@@ -182,7 +196,11 @@ async def admin_openapi(_key=Depends(admin_auth)):
 @app.get("/admin/docs", include_in_schema=False)
 async def admin_docs(_key=Depends(admin_auth)):
     from fastapi.openapi.docs import get_swagger_ui_html
-    return get_swagger_ui_html(openapi_url="/admin/openapi.json", title="DDP-API Admin")
+    return get_swagger_ui_html(
+        openapi_url="/admin/openapi.json",
+        title="DDP-API Admin",
+        swagger_ui_parameters={"persistAuthorization": True},
+    )
 
 
 # ---------------------------------------------------------------------------
