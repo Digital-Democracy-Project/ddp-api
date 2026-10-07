@@ -75,9 +75,29 @@ def test_broker_post_with_no_declared_body_gets_one(monkeypatch):
     assert body["content"]["application/json"]["example"]["jurisdiction"] == "ZZ"
 
 
+# The real public paths of the proxied write routes that get an example,
+# written out independently of the map so a typo in the map cannot hide.
+EXPECTED_EXAMPLE_KEYS = {
+    ("post", "/sync/unified"),
+    ("post", "/broker/api/bill-artifacts/"),
+    ("post", "/broker/api/bill-versions/"),
+    ("post", "/broker/api/bills/ensure/"),
+    ("post", "/broker/api/bill-promotion-requests/"),
+    ("post", "/broker/api/concept-statement-sets/"),
+    ("post", "/broker/api/concept-votes/"),
+    ("post", "/broker/api/flags/"),
+    ("post", "/broker/api/bill-organization-positions/"),
+    ("post", "/broker/api/bill-organization-research-runs/"),
+}
+
+
+def test_example_keys_are_the_real_public_paths():
+    assert set(dso._BODY_EXAMPLES) == EXPECTED_EXAMPLE_KEYS
+
+
 def test_every_example_key_is_consumed_by_the_merge(monkeypatch):
-    """A typo'd or unreachable key would silently leave Swagger's "string" in
-    place, so run each key through the real merge and require it to attach."""
+    """Run each key through the real merge (path prefix rewrite included) and
+    require the example to attach."""
     prefixes = {"/sync": "/ddp-sync/v1", "/broker": ""}
     merges = {"/sync": dso.merge_ddp_sync, "/broker": dso.merge_broker}
     for (method, path), example in dso._BODY_EXAMPLES.items():
