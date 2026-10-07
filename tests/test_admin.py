@@ -346,7 +346,8 @@ def test_example_key_name_is_refused_and_saves_nothing(key_store_with_test_keys,
     resp = test_client.post("/admin/keys", json=example, headers=h)
 
     assert resp.status_code == 422
-    assert "No key was created" in resp.json()["detail"][0]["msg"]
+    msg = resp.json()["detail"][0]["msg"]
+    assert "placeholder name" in msg and "No key was created" in msg and "Use a real name" in msg
     assert test_client.get("/admin/keys", headers=h).json()["total"] == before
 
 
