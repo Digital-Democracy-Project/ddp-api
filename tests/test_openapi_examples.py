@@ -3,6 +3,10 @@
 Every mutating operation with a JSON body must ship an example, and no example
 may switch dry-run off or a destructive flag on. Built from ddp-api's own
 routes only, so it needs no downstream service.
+
+One example cannot be inert: POST /admin/keys always writes to the key store.
+It ships a read-only, already-expired key named EXAMPLE-DO-NOT-USE, and lives
+on /admin/docs only (admin auth), never the public /docs.
 """
 import pytest
 from fastapi.openapi.utils import get_openapi
@@ -55,3 +59,23 @@ def test_json_body_has_safe_example(spec, label, operation):
         assert example.get("dry_run", True) is True, f"{label} example turns dry_run off"
         for flag in DESTRUCTIVE_FLAGS:
             assert example.get(flag) is not True, f"{label} example sets {flag}=true"
+
+
+def _models_with_examples():
+    """Request models (by component schema name) that carry examples."""
+    from app.schemas import admin, common, webflow
+
+    for name, schema in _spec()["components"]["schemas"].items():
+        if "examples" in schema:
+            for module in (common, webflow, admin):
+                if hasattr(module, name):
+                    yield name, getattr(module, name)
+                    break
+            else:
+                pytest.fail(f"{name} has examples but no model in app.schemas")
+
+
+@pytest.mark.parametrize("name,model", list(_models_with_examples()), ids=lambda v: v if isinstance(v, str) else "")
+def test_examples_validate_against_their_model(name, model):
+    for example in model.model_json_schema(by_alias=True)["examples"]:
+        model.model_validate(example)
