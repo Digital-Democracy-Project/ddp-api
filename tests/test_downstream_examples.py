@@ -51,6 +51,19 @@ def test_unlisted_routes_are_left_alone(monkeypatch):
     assert "requestBody" not in spec["paths"]["/sync/other"]["post"]
 
 
+def test_legislator_bio_sync_defaults_to_dry_run(monkeypatch):
+    downstream = {
+        "paths": {
+            "/ddp-sync/v1/trigger/legislator-bio-sync": {
+                "post": {"parameters": [{"name": "dry_run", "in": "query", "schema": {"type": "boolean", "default": False}}]}
+            }
+        }
+    }
+    spec = _merge(monkeypatch, downstream, dso.merge_ddp_sync)
+    param = spec["paths"]["/trigger/legislator-bio-sync"]["post"]["parameters"][0]
+    assert param["schema"]["default"] is True
+
+
 def test_every_example_is_non_destructive():
     for (method, path), example in dso._BODY_EXAMPLES.items():
         assert example.get("dry_run", True) is True, f"{method.upper()} {path} turns dry_run off"
@@ -79,6 +92,9 @@ def test_broker_post_with_no_declared_body_gets_one(monkeypatch):
 # written out independently of the map so a typo in the map cannot hide.
 EXPECTED_EXAMPLE_KEYS = {
     ("post", "/sync/unified"),
+    ("post", "/trigger/bill-artifact-generation"),
+    ("post", "/trigger/legbot-analyze-bill"),
+    ("post", "/trigger/legbot-analyze-bill-full"),
     ("post", "/broker/api/bill-artifacts/"),
     ("post", "/broker/api/bill-versions/"),
     ("post", "/broker/api/bills/ensure/"),
@@ -98,10 +114,10 @@ def test_example_keys_are_the_real_public_paths():
 def test_every_example_key_is_consumed_by_the_merge(monkeypatch):
     """Run each key through the real merge (path prefix rewrite included) and
     require the example to attach."""
-    prefixes = {"/sync": "/ddp-sync/v1", "/broker": ""}
-    merges = {"/sync": dso.merge_ddp_sync, "/broker": dso.merge_broker}
+    prefixes = {"/sync": "/ddp-sync/v1", "/trigger": "/ddp-sync/v1", "/broker": ""}
+    merges = {"/sync": dso.merge_ddp_sync, "/trigger": dso.merge_ddp_sync, "/broker": dso.merge_broker}
     for (method, path), example in dso._BODY_EXAMPLES.items():
-        root = "/broker" if path.startswith("/broker") else "/sync"
+        root = "/" + path.split("/")[1]
         downstream_path = prefixes[root] + (path[len("/broker"):] if root == "/broker" else path)
         spec = _merge(monkeypatch, {"paths": {downstream_path: {method: {"summary": "x"}}}}, merges[root])
         body = spec["paths"][path][method]["requestBody"]["content"]["application/json"]

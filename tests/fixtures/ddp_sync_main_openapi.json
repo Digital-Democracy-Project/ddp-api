@@ -1,0 +1,1736 @@
+{
+ "components": {
+  "schemas": {
+   "BillArtifactGenerationRequest": {
+    "description": "Request body for POST /trigger/bill-artifact-generation.\n\nNo field has a default -- every cost-relevant parameter must be an\nexplicit, reviewed choice per call, mirroring run_legbot_pipeline's own\n\"no silent defaults\" discipline (pipelines/session_pipeline_runner.py).\nbill_candidates (below) is the one exception, since it's an opt-in mode\nswitch rather than a cost-relevant knob -- omitting it (None, the\ndefault) preserves this endpoint's original session-wide-scan behavior\nunchanged.",
+    "properties": {
+     "artifact_types": {
+      "description": "BillArtifact types to fill in for this run (from the types session_pipeline_runner.ALL_ARTIFACT_TYPES supports -- bill_summary, bill_pros_cons, bill_changelog, etc.). Start with a small subset, not all of them at once.",
+      "items": {
+       "type": "string"
+      },
+      "title": "Artifact Types",
+      "type": "array"
+     },
+     "bill_candidates": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/BillCandidateInput"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "SYNC-63: optional explicit list of bills to process, as an alternative to scanning the whole jurisdiction/session for candidates. When provided, `limit` does not select or truncate which bills are considered -- every entry here is processed, through the exact same bounded-concurrency, coverage-aware pipeline as the session-wide scan (retry_failed and dry_run work identically). Use this for a targeted backfill against a caller-supplied list (e.g. bills known to be missing a specific artifact_type) instead of calling the on-demand single-bill endpoint in an uncoordinated loop -- that shape of ad hoc script overloaded CAMS and triggered the SYNC-56/60/61/62 incident chain this mode exists to prevent a repeat of.",
+      "title": "Bill Candidates"
+     },
+     "dry_run": {
+      "default": false,
+      "description": "Preview scope without dispatching anything.",
+      "title": "Dry Run",
+      "type": "boolean"
+     },
+     "include_concept_statements": {
+      "description": "Whether to also generate ConceptStatementSet rows (LegBot's concept_statements question type) for bills without an existing published set (SYNC-31).",
+      "title": "Include Concept Statements",
+      "type": "boolean"
+     },
+     "include_org_research": {
+      "description": "Whether to also dispatch Organization Position Research for bills not yet researched. THE ONLY PARAMETER HERE THAT COSTS MONEY: this is the one dispatch that leaves the local MLX model for a metered cloud API with server-side web search. Measured 2026-08-28 on FL 2026E: 17 calls, $7.26 -- about $0.43 per bill researched, against $0 for all nine artifact_types combined. Scales per bill, so a 200-bill session is on the order of $85. Already-researched bills are skipped and cost nothing, which is why the figure is per bill researched rather than per bill considered.",
+      "title": "Include Org Research",
+      "type": "boolean"
+     },
+     "jurisdiction_iso2": {
+      "description": "Two-letter state code, e.g. 'FL'.",
+      "title": "Jurisdiction Iso2",
+      "type": "string"
+     },
+     "limit": {
+      "description": "Max bills to consider this run (must be >= 1). No upper ceiling: run_legbot_pipeline dispatches sequentially anyway, and real concurrent-load protection for MLX already exists one layer down -- CAMS's own _mlx_semaphore (ddp-agents/src/legbot/reasoning.py, shipped 2026-08-04) serializes every MLX call it receives from any caller, this batch included, so simultaneous requests queue safely instead of contending for the GPU. This endpoint is still synchronous, though (see the route's own docstring): a very large limit means a very long-held HTTP request, which is a timeout consideration for the caller, not a cost or concurrency one.",
+      "title": "Limit",
+      "type": "integer"
+     },
+     "retry_failed": {
+      "description": "Whether to re-dispatch artifacts whose stored status is 'failed' (SYNC-42). Without this, a failed artifact is skipped by every later run forever -- so a failure caused by a bug, an outage or a prompt change since fixed can only be cleared by deleting rows in the broker by hand. Reaches 'failed' and nothing else: a 'complete' artifact is never re-dispatched at any value of this flag, and neither are 'pending'/'processing'. Retrying costs real inference and rewrites real rows, so like every other cost-relevant field here it has no default. Pair it with dry_run=true first -- the preview honours it and lists exactly what a real retry would dispatch.",
+      "title": "Retry Failed",
+      "type": "boolean"
+     },
+     "session_code": {
+      "description": "Legislative session identifier, e.g. '2026F'.",
+      "title": "Session Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "jurisdiction_iso2",
+     "session_code",
+     "artifact_types",
+     "include_org_research",
+     "include_concept_statements",
+     "limit",
+     "retry_failed"
+    ],
+    "title": "BillArtifactGenerationRequest",
+    "type": "object"
+   },
+   "BillCandidateInput": {
+    "description": "One entry of BillArtifactGenerationRequest.bill_candidates (SYNC-63) --\nthe same {\"gov_id\", \"bill_openstates_id\", \"live_url_fallback\"} shape\nlist_current_session_bill_candidates already returns internally, so a\ncaller with a broker-derived gap list can pass it through directly.",
+    "properties": {
+     "bill_openstates_id": {
+      "description": "Bare UUID identifying this bill in OpenStates/the local api-v3 instance (no 'ocd-bill/' prefix).",
+      "minLength": 1,
+      "title": "Bill Openstates Id",
+      "type": "string"
+     },
+     "gov_id": {
+      "description": "Bill's short public identifier, e.g. 'SJR 2F'.",
+      "minLength": 1,
+      "title": "Gov Id",
+      "type": "string"
+     },
+     "live_url_fallback": {
+      "default": "",
+      "description": "Optional live-fetch fallback bill_source, used only if no archived text exists for this bill. Empty string (the default) matches this pipeline's existing behavior when a candidate has none.",
+      "title": "Live Url Fallback",
+      "type": "string"
+     }
+    },
+    "required": [
+     "gov_id",
+     "bill_openstates_id"
+    ],
+    "title": "BillCandidateInput",
+    "type": "object"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "title": "Detail",
+      "type": "array"
+     }
+    },
+    "title": "HTTPValidationError",
+    "type": "object"
+   },
+   "LegBotAnalyzeBillFullRequest": {
+    "description": "Request body for POST /trigger/legbot-analyze-bill-full (SYNC-15).\n\nThe single-parameter \"run everything for this bill\" counterpart to\nLegBotAnalyzeBillRequest above -- one call for all 8 artifact types plus\norg position research, instead of 8+ separate calls. gov_id has no\ndefault (required, unlike artifact_types) -- see\nrun_single_bill_full's own docstring for why it can't be derived or\nskipped. include_org_research and include_concept_statements (SYNC-31)\nstill have no default, matching this codebase's \"every cost-relevant\nparameter is a conscious choice\" discipline used everywhere else in\nthis file -- only artifact_types gets a real default (all of them),\nsince that's this endpoint's whole reason to exist.",
+    "properties": {
+     "artifact_types": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "BillArtifact types to run for this bill. Omit or pass null for all of ALL_ARTIFACT_TYPES -- this endpoint's whole point is not having to enumerate them.",
+      "title": "Artifact Types"
+     },
+     "bill_openstates_id": {
+      "description": "OpenStates bill ID.",
+      "title": "Bill Openstates Id",
+      "type": "string"
+     },
+     "bill_source": {
+      "description": "URL to the bill's PDF/HTML, or its raw text.",
+      "title": "Bill Source",
+      "type": "string"
+     },
+     "dry_run": {
+      "default": false,
+      "description": "Preview scope without dispatching anything.",
+      "title": "Dry Run",
+      "type": "boolean"
+     },
+     "gov_id": {
+      "description": "Bill's gov_id, e.g. 'SB2B' -- required for the broker coverage check.",
+      "title": "Gov Id",
+      "type": "string"
+     },
+     "include_concept_statements": {
+      "description": "Whether to also generate a ConceptStatementSet for this bill, if none is already published (SYNC-31).",
+      "title": "Include Concept Statements",
+      "type": "boolean"
+     },
+     "include_org_research": {
+      "description": "Whether to also dispatch Organization Position Research for this bill. THE ONLY PARAMETER HERE THAT COSTS MONEY -- roughly $0.43 per bill against $0 for every artifact type, because it is the one dispatch that uses a metered cloud API with server-side web search rather than the local MLX model. See BillArtifactGenerationRequest.include_org_research for the measurement this came from.",
+      "title": "Include Org Research",
+      "type": "boolean"
+     },
+     "jurisdiction": {
+      "description": "Two-letter state code, e.g. 'FL'.",
+      "title": "Jurisdiction",
+      "type": "string"
+     },
+     "retry_failed": {
+      "description": "Whether to re-dispatch artifacts whose stored status is 'failed' (SYNC-42). Without this, a failed artifact is skipped by every later run forever -- so a failure caused by a bug, an outage or a prompt change since fixed can only be cleared by deleting rows in the broker by hand. Reaches 'failed' and nothing else: a 'complete' artifact is never re-dispatched at any value of this flag, and neither are 'pending'/'processing'. Retrying costs real inference and rewrites real rows, so like every other cost-relevant field here it has no default. Pair it with dry_run=true first -- the preview honours it and lists exactly what a real retry would dispatch.",
+      "title": "Retry Failed",
+      "type": "boolean"
+     },
+     "session_code": {
+      "description": "Legislative session identifier, e.g. '2026F'.",
+      "title": "Session Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "bill_openstates_id",
+     "jurisdiction",
+     "session_code",
+     "gov_id",
+     "bill_source",
+     "include_org_research",
+     "include_concept_statements",
+     "retry_failed"
+    ],
+    "title": "LegBotAnalyzeBillFullRequest",
+    "type": "object"
+   },
+   "LegBotAnalyzeBillRequest": {
+    "description": "Request body for POST /trigger/legbot-analyze-bill.\n\nNo field has a default -- same \"every consequential param is a\nconscious choice\" discipline as BillArtifactGenerationRequest above.\nbill_source is caller-supplied here (unlike the batch pipeline, where it\nalways comes from trusted internal candidate-listing code) -- ddp-sync\nitself never fetches it; it's passed straight through to CAMS/LegBot's\ntask API as a plain string, the same as every other dispatch in this\ncodebase. Any URL-fetch safety for it is CAMS/LegBot's own ingest-path\nresponsibility (already shared across every analyze_bill caller), not\nsomething this endpoint duplicates.",
+    "properties": {
+     "artifact_type": {
+      "description": "One of the BillArtifact types (session_pipeline_runner.ALL_ARTIFACT_TYPES) -- bill_summary, bill_pros_cons, bill_changelog, etc.",
+      "title": "Artifact Type",
+      "type": "string"
+     },
+     "bill_openstates_id": {
+      "description": "OpenStates bill ID.",
+      "title": "Bill Openstates Id",
+      "type": "string"
+     },
+     "bill_source": {
+      "description": "URL to the bill's PDF/HTML, or its raw text.",
+      "title": "Bill Source",
+      "type": "string"
+     },
+     "jurisdiction": {
+      "description": "Two-letter state code, e.g. 'FL'.",
+      "title": "Jurisdiction",
+      "type": "string"
+     },
+     "session_code": {
+      "description": "Legislative session identifier, e.g. '2026F'.",
+      "title": "Session Code",
+      "type": "string"
+     }
+    },
+    "required": [
+     "bill_openstates_id",
+     "jurisdiction",
+     "session_code",
+     "bill_source",
+     "artifact_type"
+    ],
+    "title": "LegBotAnalyzeBillRequest",
+    "type": "object"
+   },
+   "UnifiedSyncRequest": {
+    "description": "Request schema for unified sync endpoint.",
+    "properties": {
+     "all_sessions": {
+      "default": false,
+      "description": "Bypass session/jurisdiction filters for backfill operations",
+      "title": "All Sessions",
+      "type": "boolean"
+     },
+     "content_type": {
+      "description": "Content type to sync: bill, legislator, organization, webpage, training",
+      "title": "Content Type",
+      "type": "string"
+     },
+     "dry_run": {
+      "default": false,
+      "description": "Preview without ingesting",
+      "title": "Dry Run",
+      "type": "boolean"
+     },
+     "file_path": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "File path (for training documents)",
+      "title": "File Path"
+     },
+     "include_openstates": {
+      "default": true,
+      "description": "Include OpenStates data for bills",
+      "title": "Include Openstates",
+      "type": "boolean"
+     },
+     "include_pdfs": {
+      "default": true,
+      "description": "Include PDF processing for bills",
+      "title": "Include Pdfs",
+      "type": "boolean"
+     },
+     "include_sponsored_bills": {
+      "default": true,
+      "description": "Include sponsored bills for legislators",
+      "title": "Include Sponsored Bills",
+      "type": "boolean"
+     },
+     "jurisdiction": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Filter by jurisdiction (e.g., FL, US)",
+      "title": "Jurisdiction"
+     },
+     "limit": {
+      "default": 0,
+      "description": "Maximum items to process (0 = unlimited)",
+      "minimum": 0.0,
+      "title": "Limit",
+      "type": "integer"
+     },
+     "mode": {
+      "default": "single",
+      "description": "Sync mode: single or batch",
+      "title": "Mode",
+      "type": "string"
+     },
+     "openstates_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "OpenStates ID (for bills/legislators)",
+      "title": "Openstates Id"
+     },
+     "resume_task_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Task ID of a previous run to resume from (skips already-processed items)",
+      "title": "Resume Task Id"
+     },
+     "slug": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Item slug in Webflow",
+      "title": "Slug"
+     },
+     "target": {
+      "default": "all",
+      "description": "Target data flow: all (default), webflow (CMS only), pinecone (vector store only)",
+      "title": "Target",
+      "type": "string"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "URL (for webpages)",
+      "title": "Url"
+     },
+     "webflow_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Webflow CMS item ID",
+      "title": "Webflow Id"
+     }
+    },
+    "required": [
+     "content_type"
+    ],
+    "title": "UnifiedSyncRequest",
+    "type": "object"
+   },
+   "UnifiedSyncResponse": {
+    "description": "Response schema for unified sync endpoint.",
+    "properties": {
+     "chunks_created": {
+      "default": 0,
+      "description": "Number of chunks created in vector store",
+      "title": "Chunks Created",
+      "type": "integer"
+     },
+     "content_type": {
+      "description": "Content type that was synced",
+      "title": "Content Type",
+      "type": "string"
+     },
+     "document_ids": {
+      "description": "IDs of documents created",
+      "items": {
+       "type": "string"
+      },
+      "title": "Document Ids",
+      "type": "array"
+     },
+     "duration_ms": {
+      "default": 0,
+      "description": "Duration of sync operation in milliseconds",
+      "title": "Duration Ms",
+      "type": "integer"
+     },
+     "errors": {
+      "description": "List of error messages",
+      "items": {
+       "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+     },
+     "items_failed": {
+      "default": 0,
+      "description": "Number of items that failed",
+      "title": "Items Failed",
+      "type": "integer"
+     },
+     "items_processed": {
+      "default": 0,
+      "description": "Number of items processed",
+      "title": "Items Processed",
+      "type": "integer"
+     },
+     "items_successful": {
+      "default": 0,
+      "description": "Number of items successfully synced",
+      "title": "Items Successful",
+      "type": "integer"
+     },
+     "mode": {
+      "description": "Sync mode used",
+      "title": "Mode",
+      "type": "string"
+     },
+     "status": {
+      "default": "completed",
+      "description": "Task status: accepted, running, completed, failed",
+      "title": "Status",
+      "type": "string"
+     },
+     "success": {
+      "description": "Whether the sync operation succeeded",
+      "title": "Success",
+      "type": "boolean"
+     },
+     "task_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Background task ID (for batch operations)",
+      "title": "Task Id"
+     }
+    },
+    "required": [
+     "success",
+     "content_type",
+     "mode"
+    ],
+    "title": "UnifiedSyncResponse",
+    "type": "object"
+   },
+   "ValidationError": {
+    "properties": {
+     "ctx": {
+      "title": "Context",
+      "type": "object"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Location",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Message",
+      "type": "string"
+     },
+     "type": {
+      "title": "Error Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError",
+    "type": "object"
+   }
+  },
+  "securitySchemes": {
+   "APIKeyHeader": {
+    "in": "header",
+    "name": "Authorization",
+    "type": "apiKey"
+   }
+  }
+ },
+ "paths": {
+  "/ddp-sync/v1/sync/unified": {
+   "post": {
+    "description": "Sync bills, legislators, organizations, webpages, or training documents.",
+    "operationId": "sync_unified_ddp_sync_v1_sync_unified_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UnifiedSyncRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UnifiedSyncResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Unified sync endpoint for all content types",
+    "tags": [
+     "sync"
+    ]
+   }
+  },
+  "/ddp-sync/v1/sync/unified/all": {
+   "post": {
+    "description": "Run batch sync for bills, legislators, and organizations.",
+    "operationId": "sync_all_ddp_sync_v1_sync_unified_all_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "include_pdfs",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Include Pdfs",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "include_openstates",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Include Openstates",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "include_sponsored_bills",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Include Sponsored Bills",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "dry_run",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Dry Run",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": {
+          "$ref": "#/components/schemas/UnifiedSyncResponse"
+         },
+         "title": "Response Sync All Ddp Sync V1 Sync Unified All Post",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Sync all content types in batch mode",
+    "tags": [
+     "sync"
+    ]
+   }
+  },
+  "/ddp-sync/v1/sync/unified/status/{task_id}": {
+   "get": {
+    "description": "Check the status of a batch sync operation started in the background.",
+    "operationId": "get_sync_status_ddp_sync_v1_sync_unified_status__task_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "task_id",
+      "required": true,
+      "schema": {
+       "title": "Task Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UnifiedSyncResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Get status of a background sync task",
+    "tags": [
+     "sync"
+    ]
+   }
+  },
+  "/ddp-sync/v1/trigger/bill-artifact-generation": {
+   "post": {
+    "description": "Fill in missing BillArtifact rows for every bill in one jurisdiction/session.\n\nrun_legbot_pipeline's (pipelines/session_pipeline_runner.py) first real\nproduction caller (SYNC-9) -- ddp-infra's PLAN-bill-document-\nprovenance.md \"Step 1, scoped version\". Synchronous, like\n/trigger/bill-version-check: returns the full result payload so an\noperator can review exactly what was generated/skipped/failed before\nrunning a broader batch.\n\nOPEN-290: dispatches through pipelines.scraper_triggered_legbot.\ntrigger_scraper_session_pipeline (SYNC-48's overlap-safe wrapper,\nrequire_trigger_enabled=False) instead of calling run_legbot_pipeline\ndirectly, so this endpoint now shares the same Redis overlap lock as\nthe archive-completion hook (previously /trigger/scraper-session-legbot,\nnow removed -- see that endpoint's old docstring in git history). This\ncloses a real gap found in production 2026-09-13: a manual dispatch here\nand an automated one for the same jurisdiction+session could run fully\nconcurrently, neither visible to the other, because only the automated\npath's own trigger had a lock.\n\nx_ddp_automated_trigger (pm-review, OPEN-290): the old\n/trigger/scraper-session-legbot gave the Mac operator an independent\nkill switch for automated dispatch (LEGBOT_SCRAPE_COMPLETION_TRIGGER_\nENABLED, checked on the Mac, regardless of what the EC2 caller's own\ncopy of that flag says) -- naively defaulting this endpoint's\nrequire_trigger_enabled to False for every caller would have silently\ndropped that switch for the one real automated caller that still\nreaches this endpoint (the archive-completion hook's WireGuard hop,\n_trigger_legbot_session_via_mac_wireguard), leaving only EC2's own\nflag as protection with no Mac-side override. This header lets that one\ncaller identify itself so its call is still gated by THIS instance's\nLEGBOT_SCRAPE_COMPLETION_TRIGGER_ENABLED, same as before OPEN-290. Every\nother caller (the default, omitted) keeps this endpoint's original,\nalways-available manual behavior, unaffected by that flag -- exactly\nlike before this ticket.\n\nA non-2xx result from the wrapper is translated to an HTTP response\nbelow rather than returned as a 200 body the way the old automated-only\nendpoint did, since this one has always had a real human/caller\ninspecting the status code, not just a body field.\n\n`limit` has no upper ceiling (removed 2026-08-15 -- the previous hard\ncap of 25 was meant to protect against concurrent load on a shared\nCAMS/LegBot/MLX backend, but that protection already exists one layer\ndown (CAMS's own `_mlx_semaphore`, `ddp-agents/src/legbot/reasoning.py`,\nshipped 2026-08-04, serializes every MLX call it receives regardless of\ncaller) and this pipeline dispatches sequentially anyway; MLX inference\nalso has no per-call cost, unlike a metered cloud API. See `limit`'s own\nfield description above for what remains a real consideration -- this\nendpoint's synchronous request/response shape means a very large\n`limit` is a client/proxy timeout question, not a cost or concurrency\none.\n\nx_ddp_environment: optional 'dev'/'prod' X-DDP-Environment header --\nmirrors the on-demand single-bill endpoints' own environment switch\n(_resolve_ondemand_broker_target below), so a caller can point one run\nat dev ddp-broker-py without touching this instance's global\nDDP_BROKER_API_BASE/DDP_BROKER_API_TOKEN, which every OTHER broker-\nwriting path in this service also reads (including real scheduled\nproduction jobs) -- added after a live incident where testing a full\nsession run required a manual, global .env swap to avoid writing to\nproduction, with no per-request way to ask for dev instead. Omitted\n(the default) preserves this endpoint's original behavior unchanged.\n\nbody.bill_candidates (SYNC-63): when set, replaces the session-wide\nscan with this caller-supplied list -- see BillArtifactGenerationRequest\nand run_legbot_pipeline's own bill_candidates docstring for the full\nrationale (the incident this mode exists to prevent a repeat of). This\nis the intended way to run a large targeted backfill going forward,\nrather than an uncoordinated external script hitting the on-demand\nsingle-bill endpoint in a loop.",
+    "operationId": "trigger_bill_artifact_generation_ddp_sync_v1_trigger_bill_artifact_generation_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-ddp-environment",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Ddp-Environment"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-ddp-automated-trigger",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "X-Ddp-Automated-Trigger",
+       "type": "boolean"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BillArtifactGenerationRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Bill Artifact Generation"
+   }
+  },
+  "/ddp-sync/v1/trigger/bill-status-sync": {
+   "post": {
+    "description": "Sync OpenStates \u2192 Webflow CMS status fields only (no Pinecone).\n\nLightweight alternative to bill-version-check that only updates\nstatus, status-date, status-chamber, and gov-url in Webflow CMS.\n\nQuery params:\n    all_sessions: Bypass session filters for backfill (default false)\n    jurisdiction: Filter to a single state code (e.g. FL)",
+    "operationId": "trigger_bill_status_sync_ddp_sync_v1_trigger_bill_status_sync_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "all_sessions",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "All Sessions",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "jurisdiction",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Jurisdiction"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Bill Status Sync"
+   }
+  },
+  "/ddp-sync/v1/trigger/bill-version-check": {
+   "post": {
+    "description": "Trigger the daily bill version check (status updates to Webflow CMS).",
+    "operationId": "trigger_bill_version_check_ddp_sync_v1_trigger_bill_version_check_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Bill Version Check"
+   }
+  },
+  "/ddp-sync/v1/trigger/full-sync": {
+   "post": {
+    "description": "Trigger full-attribute Voatz -> Brevo sync.",
+    "operationId": "trigger_full_sync_ddp_sync_v1_trigger_full_sync_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Full Sync"
+   }
+  },
+  "/ddp-sync/v1/trigger/grantbot-scrape-funders": {
+   "post": {
+    "description": "Fire GrantBot's funder-scrape + Kindora enrichment job on demand (SYNC-36).\n\nMirrors the monthly scheduled job (scheduler.py's grantbot_scrape) --\nsame wrapper function, same CAMS endpoint, so an operator can trigger it\nad hoc without waiting for the 1st of the month. Synchronous, not\nbackground-tasked: CAMS's own POST /api/v1/admin/scrape-funders already\nreturns 202 and runs the real work in ITS background, so this call\nitself completes almost immediately either way.",
+    "operationId": "trigger_grantbot_scrape_funders_ddp_sync_v1_trigger_grantbot_scrape_funders_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Grantbot Scrape Funders"
+   }
+  },
+  "/ddp-sync/v1/trigger/knowledge-base-backfill/{jurisdiction}": {
+   "post": {
+    "description": "SYNC-90: backfill the `ddp-knowledge-base` index for one jurisdiction (PLAN-enterprise-\nsearch.md 5.6), through the same embedding code as the post-archive hook.\n\nReturns 202 at once with a `run_id` that appears in every structured log line the run writes;\nlike OPEN-268's backfill, the dry run's result (bills per stage and how many remain) lands in\nthe log line `knowledge_base_backfill_dry_run`, not in this response, because a real run lasts\nhours. Defaults to `dry_run=true`.\n\nstage: one of current, diffs, prior-sessions, history; omit to run current, prior-sessions and history in\norder (`diffs` is valid but never in the default: version diffs are not embedded, 2026-10-05)\n(finished stages are skipped, interrupted ones resume from their checkpoint).\nrestart: forget the checkpoint(s) and walk from the start.\n\n404 for an unknown stage or a jurisdiction not enrolled in `openstates_archive.\nknowledge_base_embedding.jurisdictions`; 503 when `KNOWLEDGE_BASE_INDEX_NAME` or the read api\nis not configured on this host; 409 when a backfill of this jurisdiction is already running.",
+    "operationId": "trigger_knowledge_base_backfill_ddp_sync_v1_trigger_knowledge_base_backfill__jurisdiction__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "jurisdiction",
+      "required": true,
+      "schema": {
+       "title": "Jurisdiction",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "stage",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Stage"
+      }
+     },
+     {
+      "in": "query",
+      "name": "dry_run",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Dry Run",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "restart",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Restart",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Knowledge Base Backfill"
+   }
+  },
+  "/ddp-sync/v1/trigger/knowledge-base-entities/{entity}": {
+   "post": {
+    "description": "SYNC-91: embed organizations into `ddp-knowledge-base` (PLAN-enterprise-search.md 5.6), through\nthe same embedder as the bill hook. Returns 202 with a `run_id`; the totals land in the log\n(`knowledge_base_entities_run` / `_incomplete`). Defaults to a dry run (counts what it would\nwrite, writes nothing).\n\nentity: `organizations` (every public organization in ddp-broker-py; needs BROKER-144 deployed\nthere). Legislators are not embedded (SYNC-94), so `legislators` is an unknown entity.\n\n404 for an unknown entity; 503 when `KNOWLEDGE_BASE_INDEX_NAME` is not usable on this host or\n`DDP_BROKER_API_BASE` is not configured.",
+    "operationId": "trigger_knowledge_base_entities_ddp_sync_v1_trigger_knowledge_base_entities__entity__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "entity",
+      "required": true,
+      "schema": {
+       "title": "Entity",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "dry_run",
+      "required": false,
+      "schema": {
+       "default": true,
+       "title": "Dry Run",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Knowledge Base Entities"
+   }
+  },
+  "/ddp-sync/v1/trigger/knowledge-base-reconcile/{jurisdiction}": {
+   "post": {
+    "description": "SYNC-95: the dry run of the reconcile pass for one jurisdiction. It always plans and never\nwrites: it lists the jurisdiction's archived bills, counts the ones the Redis version cache has no\nrecord of, samples a few to estimate the documents, chunks, tokens and dollars they would cost, and\nlogs the result as `knowledge_base_reconcile_plan` (like the backfill's dry run, the numbers land in\nthe log, not in this 202). The real pass is the post-archive hook's, switched on by\n`openstates_archive.knowledge_base_embedding.reconcile.max_bills_per_run`.\n\n404 for a jurisdiction not enrolled in `knowledge_base_embedding.jurisdictions`; 503 when\n`KNOWLEDGE_BASE_INDEX_NAME` or the read api is not configured on this host.\n\n`ledger=true` plans the api-v3 ledger reconcile instead (`knowledge_base_embedding.ledger`): the bills\nwhose documents are missing, changed or (if `delete_orphans` is on) orphaned, rather than the ones with\nno record. Needs api-v3's `/ddp/embedding/ledger` (OPEN-319); without it the plan reports\n`ledger_unavailable`.",
+    "operationId": "trigger_knowledge_base_reconcile_plan_ddp_sync_v1_trigger_knowledge_base_reconcile__jurisdiction__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "jurisdiction",
+      "required": true,
+      "schema": {
+       "title": "Jurisdiction",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "ledger",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Ledger",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Knowledge Base Reconcile Plan"
+   }
+  },
+  "/ddp-sync/v1/trigger/legbot-analyze-bill": {
+   "post": {
+    "description": "Dispatch an on-demand single-bill LegBot analysis (SYNC-10).\n\nddp-next's interactive \"explain this bill\"/\"pros and cons\" UX --\ndistinct from /trigger/bill-artifact-generation above, which fills in a\nwhole jurisdiction/session batch. Reuses the exact same dispatch ->\nddp-broker-py write path as that batch pipeline\n(bill_artifact_generation.py), just for one bill.\n\nMac-Studio-only by construction: CAMS/LegBot dispatch is a same-box\ncall (legbot_client.py reads CAMS's result off the local filesystem,\nwith no network equivalent), so this endpoint only ever works correctly\nwhen ddp-sync itself is running on the same host as CAMS. Host-guards\non CAMS_BASE_URL/CAMS_ARTIFACTS_DIR being configured (503, not a\nconfusing stack trace) rather than assuming the caller reached the\nright instance -- see ddp-api's own routing-fix ticket (the\n/trigger/legbot-analyze-bill path needs a scoped override to reach this\ninstance specifically; not yet built, tracked separately).\n\nAsync, pending-row + background-task shape: writes an initial `pending`\nBillArtifact row via dispatch_and_record_bill_artifact, then dispatches\nto LegBot in the background and returns 202 immediately -- ddp-next\npolls ddp-broker-py's BillArtifact row (via ddp-api's existing /broker\nproxy) until status is no longer pending, rather than blocking this\nrequest on LegBot's own response time.",
+    "operationId": "trigger_legbot_analyze_bill_ddp_sync_v1_trigger_legbot_analyze_bill_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-ddp-environment",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Ddp-Environment"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LegBotAnalyzeBillRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Legbot Analyze Bill"
+   }
+  },
+  "/ddp-sync/v1/trigger/legbot-analyze-bill-full": {
+   "post": {
+    "description": "Run every requested artifact type (default: all 8) plus optional org\nresearch for one bill, in a single call (SYNC-15).\n\nSynchronous, like /trigger/bill-artifact-generation -- returns the full\nper-bill result payload rather than the dispatch-and-poll shape\n/trigger/legbot-analyze-bill uses. That endpoint's async/202 design\nexists because it's ddp-next's public-facing interactive UX with a real\nuser waiting; this one is operator/backfill-facing (at most 10 real\ndispatches -- 9 artifact types + org research -- for one bill), which\ncomfortably fits the same synchronous convention the batch endpoint\nalready established for potentially many more dispatches than that.\n\nSame Mac-Studio-only construction as /trigger/legbot-analyze-bill --\nsee that endpoint's own docstring for why (CAMS/LegBot dispatch reads\nresults off local disk, no network equivalent).",
+    "operationId": "trigger_legbot_analyze_bill_full_ddp_sync_v1_trigger_legbot_analyze_bill_full_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-ddp-environment",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Ddp-Environment"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LegBotAnalyzeBillFullRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Legbot Analyze Bill Full"
+   }
+  },
+  "/ddp-sync/v1/trigger/legislator-bio-sync": {
+   "post": {
+    "description": "Trigger the legislator bio + contact sync.\n\nSee plans/PLAN-legislator-bio-sync.md for the full design. Phase 1\nfederal-only; state path is a clear stub.\n\nQuery params:\n    dry_run:          Preview the diff without writing.\n    auto_create:      Create drafts for upstream-only members. Defaults\n                      to the per-jurisdiction config (currently false).\n    jurisdiction:     Filter to one state code (\"FL\", \"WA\", ..., \"us\"\n                      for federal). Default: all configured.\n    target:           \"all\" / \"webflow\" / \"pinecone\".\n    limit:            Cap items processed. 0 = unlimited.\n    historical_since: Federal historical backfill cutoff (YYYY-MM-DD).\n                      Default: 2023-01-01.\n    audit_only:       Skip the sync and return just an audit report.\n                      Values: \"A\" (federal join-key coverage),\n                      \"B\" (bulk-import readiness \u2014 every record has\n                      openstatesid + no duplicates), \"C\" (pre-existing\n                      state CMS records lacking openstatesid).\n    strict_schema:    Phase-3 validation flag. When True, any payload\n                      field that the schema cache would silently drop\n                      (slug missing from the live CMS collection)\n                      becomes a per-record error. Default False;\n                      flip True for the first deploy after adding a\n                      new write target so missing slugs surface\n                      instead of silently no-op'ing.\n    upload_photos:    Phase-3 photo-upload pipeline. When True, the\n                      orchestrator fetches the source image from\n                      photo-source-url and uploads to Webflow's\n                      asset library, populating the legislator-image\n                      (Image type) field. Default False; flip True\n                      after editor verification of a sample. Skipped\n                      when CMS already has a legislator-image set\n                      (cardinal rule). Per-record upload failures\n                      are logged + isolated, don't abort the run.\n    upload_photos_dry_run: Phase-3 connectivity smoke. When True\n                      (with upload_photos=True), the source image\n                      is fetched + size-validated + hashed but the\n                      Webflow asset-creation step is skipped.\n                      Lets operators smoke-test source-CDN\n                      reachability without consuming Webflow's\n                      asset rate limit or storage. No-op when\n                      upload_photos is False.\n\nReturns: BioSyncReport JSON.\n\n503 if the congress-legislators source isn't yet warmed at app\nstartup \u2014 retry in ~60s. Set Retry-After header.",
+    "operationId": "trigger_legislator_bio_sync_ddp_sync_v1_trigger_legislator_bio_sync_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "dry_run",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Dry Run",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "auto_create",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Auto Create"
+      }
+     },
+     {
+      "in": "query",
+      "name": "jurisdiction",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Jurisdiction"
+      }
+     },
+     {
+      "in": "query",
+      "name": "target",
+      "required": false,
+      "schema": {
+       "default": "all",
+       "title": "Target",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "historical_since",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Historical Since"
+      }
+     },
+     {
+      "in": "query",
+      "name": "audit_only",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Audit Only"
+      }
+     },
+     {
+      "in": "query",
+      "name": "strict_schema",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Strict Schema",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "upload_photos",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Upload Photos",
+       "type": "boolean"
+      }
+     },
+     {
+      "in": "query",
+      "name": "upload_photos_dry_run",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Upload Photos Dry Run",
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Legislator Bio Sync"
+   }
+  },
+  "/ddp-sync/v1/trigger/open304-lis-identifiers": {
+   "post": {
+    "description": "OPEN-304: run open304-add-lis-identifiers.py as a Fargate task -- adds the 14 missing\n`lis`-scheme PersonIdentifier rows for senators whose votes can't resolve to a person (and\nso show as \"Unknown\" party in VoteBot) until this exists. Shares run_fargate_script_job with\n/trigger/vote-person-backfill above (see that pipeline module's docstring for why this is a\nregistered `job` key rather than a third near-duplicate module) -- this endpoint just wires\nup the \"open304-lis-identifiers\" key with its own dedicated, discoverable URL rather than a\ngeneric `/trigger/fargate-script/{job}` route, matching every other one-off trigger in this\nfile.\n\nNote: this only lets *future* scrapes resolve these 14 senators' votes correctly. It does not\nretroactively fix votes already imported before these identifiers existed -- that needs a\nfollow-up run of /trigger/vote-person-backfill (safe to re-run any time; it only fills in\nstill-null voter_id values, using whatever identifiers exist in PersonIdentifier at the time\nit runs).\n\nReturns 202 Accepted immediately, with a `run_id` that also appears in every structured log\nline the job itself produces, same correlation-handle reasoning as\ntrigger_vote_person_backfill above.\n\nmode: dry-run (default) or commit",
+    "operationId": "trigger_open304_lis_identifiers_ddp_sync_v1_trigger_open304_lis_identifiers_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "mode",
+      "required": false,
+      "schema": {
+       "default": "dry-run",
+       "title": "Mode",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Open304 Lis Identifiers"
+   }
+  },
+  "/ddp-sync/v1/trigger/openstates-archive/{target}": {
+   "post": {
+    "description": "Trigger OpenStates bill-document archiving immediately, without waiting for its cron.\n\nSplit out from the scrape trigger (2026-07-31) \u2014 archiving is now fully independent of\nscraping (see openstates_archive in sync_schedule.yaml), so it gets its own trigger too.\nReturns 202 Accepted immediately; the job runs in the background and logs to\n~/Developer/repos/ddp-open-states/logs/scraper.log plus ddp-sync's structured log. Flow\nstatus is written to Redis under ddp:flow:openstates_archive.\n\nTargets:\n    all                \u2014 every jurisdiction in openstates_archive.jurisdictions, concurrently\n    <jurisdiction abbr> \u2014 a single jurisdiction from that same list (see sync_schedule.yaml)",
+    "operationId": "trigger_openstates_archive_ddp_sync_v1_trigger_openstates_archive__target__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "target",
+      "required": true,
+      "schema": {
+       "title": "Target",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Openstates Archive"
+   }
+  },
+  "/ddp-sync/v1/trigger/openstates-backfill/{jurisdiction}": {
+   "post": {
+    "description": "OPEN-268: run an os-text-extract data-quality subcommand for one jurisdiction as a\nFargate task, instead of an ad-hoc invocation in this host's own bare venv.\n\nReturns 202 Accepted immediately, with a `run_id` that also appears in every structured\nlog line the job itself produces (openstates_backfill.py) -- the correlation handle\nbetween this immediate response and the job's eventual result, since a dry-run's whole\nvalue is its printed summary (`output` in the log line, once the job finishes) and\nnothing about it lands anywhere else to check instead. Unlike the scrape/archive triggers,\nthere is no flow-status Redis key or jurisdiction allowlist here -- this is meant for\noccasional, deliberate, human/prod-agent-watched invocations (the RDS data-quality\nbackfill this ticket comes out of), not a scheduled job with its own config section, so\nthe caller is trusted to know which jurisdiction and subcommand they mean rather than this\nendpoint validating against a pre-declared list.\n\nsubcommand: one of reextract, refresh-extraction, recompute-diff-order\nmode: dry-run (default) or commit\nsession: optional, passed through as os-text-extract's own --session flag",
+    "operationId": "trigger_openstates_backfill_ddp_sync_v1_trigger_openstates_backfill__jurisdiction__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "jurisdiction",
+      "required": true,
+      "schema": {
+       "title": "Jurisdiction",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "subcommand",
+      "required": true,
+      "schema": {
+       "title": "Subcommand",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "mode",
+      "required": false,
+      "schema": {
+       "default": "dry-run",
+       "title": "Mode",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "session",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Session"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Openstates Backfill"
+   }
+  },
+  "/ddp-sync/v1/trigger/openstates-scrape/{target}": {
+   "post": {
+    "description": "Trigger an OpenStates scrape job immediately, without waiting for its cron.\n\nReturns 202 Accepted immediately; the job runs in the background and logs\nto ~/Developer/repos/ddp-open-states/logs/scraper.log plus ddp-sync's\nstructured log. Flow status is written to Redis under ddp:flow:openstates_*.\n\nTargets:\n    patches     \u2014 run apply-local-patches.sh (idempotent, ~30s)\n    fl          \u2014 all FL sessions sequentially (2026, 2026D, 2026E, 2026F)\n    wa          \u2014 WA scrape + import\n    usa         \u2014 USA lower then upper sequentially\n    secondary   \u2014 VA, MI, MA, UT, AZ concurrently\n    people      \u2014 git pull people repo + os-people to-database for all states\n    va|mi|ma|ut|az \u2014 single secondary-state scrape + import",
+    "operationId": "trigger_openstates_scrape_ddp_sync_v1_trigger_openstates_scrape__target__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "target",
+      "required": true,
+      "schema": {
+       "title": "Target",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Openstates Scrape"
+   }
+  },
+  "/ddp-sync/v1/trigger/user-sync": {
+   "post": {
+    "description": "Trigger incremental Voatz -> Brevo user sync.",
+    "operationId": "trigger_user_sync_ddp_sync_v1_trigger_user_sync_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger User Sync"
+   }
+  },
+  "/ddp-sync/v1/trigger/vote-person-backfill": {
+   "post": {
+    "description": "SYNC-74 (VOTEBOT-7/OPEN-2 recurrence): run backfill-vote-person-resolution.py as a\nFargate task, the same way OPEN-268's openstates-backfill endpoint runs os-text-extract\nsubcommands -- a separate, small endpoint rather than a fourth allowed subcommand there,\nsince the vote-person backfill has a genuinely different CLI shape (no jurisdiction or\nsubcommand, just an optional --dry-run/--commit).\n\nReturns 202 Accepted immediately, with a `run_id` that also appears in every structured\nlog line the job itself produces (vote_person_backfill.py) -- the correlation handle\nbetween this immediate response and the job's eventual result, matching\ntrigger_openstates_backfill's own reasoning.\n\nmode: dry-run (default) or commit",
+    "operationId": "trigger_vote_person_backfill_ddp_sync_v1_trigger_vote_person_backfill_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "mode",
+      "required": false,
+      "schema": {
+       "default": "dry-run",
+       "title": "Mode",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Vote Person Backfill"
+   }
+  },
+  "/ddp-sync/v1/trigger/votebot-eval": {
+   "post": {
+    "description": "Trigger an on-demand votebot eval run.\n\nSee plans/PLAN-eval-and-cache-hit-logging.md \u00a73.4 for the full design.\n\nQuery params:\n    days: Window passed to evaluate_production.py --days. Bounded by\n          the YAML config's ``max_days`` (default 30). Out-of-range\n          returns 400.\n\nStatus codes:\n    200 \u2014 run completed successfully (returns headline + regressions).\n    400 \u2014 days outside [1, max_days].\n    409 \u2014 another run is currently in flight (returns current_run_id\n          + lock TTL).\n    500 \u2014 unexpected error.\n    503 \u2014 votebot path is invalid (Phase 1 not deployed, EC2 path\n          moved, etc.).",
+    "operationId": "trigger_votebot_eval_ddp_sync_v1_trigger_votebot_eval_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 7,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Votebot Eval"
+   }
+  },
+  "/ddp-sync/v1/trigger/webflow/{job_name}": {
+   "post": {
+    "description": "Trigger a specific Webflow CMS batch job.",
+    "operationId": "trigger_webflow_job_ddp_sync_v1_trigger_webflow__job_name__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "job_name",
+      "required": true,
+      "schema": {
+       "title": "Job Name",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "APIKeyHeader": []
+     }
+    ],
+    "summary": "Trigger Webflow Job"
+   }
+  }
+ }
+}
