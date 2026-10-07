@@ -28,6 +28,94 @@ logger = logging.getLogger(__name__)
 _CACHE_TTL_SECONDS = 300
 _cache: dict[str, tuple[float, Optional[dict]]] = {}
 
+# Request-body examples for proxied write routes, keyed by (method, public path).
+# Downstream specs ship none, so Swagger would pre-fill "string"/0 (API-7).
+# These are for NON-DESTRUCTIVE testing: run unmodified, an example must never
+# write or delete real data. Routes with a dry_run flag set it true; the rest
+# use values the downstream rejects before any write.
+_NIL_UUID = "00000000-0000-0000-0000-000000000000"
+_BODY_EXAMPLES: dict[tuple[str, str], dict] = {
+    ("post", "/sync/unified"): {
+        "content_type": "bill",
+        "mode": "single",
+        "slug": "example-do-not-use",
+        "dry_run": True,
+    },
+    # ddp-broker-py has no dry-run mode. Every broker example below is rejected
+    # with a 400 by the broker's serializer/view BEFORE any write: the bill
+    # ("ZZ", all-zero UUID) or parent row they point at cannot exist, or one
+    # required field is deliberately invalid. Do not "fix" the invalid fields
+    # on the two marked below -- those routes do no existence check, so a valid
+    # body would create a row.
+    ("post", "/broker/api/bill-artifacts/"): {
+        "bill_openstates_id": _NIL_UUID,
+        "jurisdiction": "ZZ",
+        "session_code": "0000",
+        "version_note": "EXAMPLE-DO-NOT-USE",
+        "artifact_type": "bill_summary",
+        "content": "EXAMPLE",
+    },
+    ("post", "/broker/api/bill-versions/"): {
+        "bill_openstates_id": _NIL_UUID,
+        "jurisdiction": "ZZ",
+        "session_code": "0000",
+        "version_note": "EXAMPLE-DO-NOT-USE",
+    },
+    # Omits the two classification fields; rejected before any lookup or sync.
+    ("post", "/broker/api/bills/ensure/"): {
+        "jurisdiction": "ZZ",
+        "session_code": "0000",
+        "gov_id": "HB1",
+    },
+    ("post", "/broker/api/bill-promotion-requests/"): {
+        "gov_id": "HB1",
+        "jurisdiction_iso2": "ZZ",
+        "session_code": "0000",
+    },
+    # INERT ONLY BECAUSE statements IS EMPTY: no bill existence check here.
+    ("post", "/broker/api/concept-statement-sets/"): {
+        "gov_id": "HB1",
+        "jurisdiction_iso2": "ZZ",
+        "session_code": "0000",
+        "statements": [],
+    },
+    ("post", "/broker/api/concept-votes/"): {
+        "statement_set_id": 0,
+        "statement_index": 0,
+        "choice": "pass",
+        "visitor_id": "EXAMPLE-DO-NOT-USE",
+    },
+    ("post", "/broker/api/flags/"): {
+        "target_content_type": "bill",
+        "target_id": 0,
+        "reason": "other",
+    },
+    # The next two have no body in the broker's own schema; injected here.
+    ("post", "/broker/api/bill-organization-positions/"): {
+        "bill_openstates_id": _NIL_UUID,
+        "jurisdiction": "ZZ",
+        "session_code": "0000",
+        "version_note": "EXAMPLE-DO-NOT-USE",
+        "invocation_id": _NIL_UUID,
+        "org_name": "EXAMPLE-DO-NOT-USE",
+        "position": "support",
+        "citation_url": "https://example.invalid/",
+    },
+    # INERT ONLY BECAUSE positions_found_count IS NEGATIVE: no bill check here.
+    ("post", "/broker/api/bill-organization-research-runs/"): {
+        "bill_openstates_id": _NIL_UUID,
+        "jurisdiction": "ZZ",
+        "session_code": "0000",
+        "invocation_id": _NIL_UUID,
+        "positions_found_count": -1,
+    },
+}
+
+# Query-parameter defaults that make a route's unmodified "Try it out" a preview.
+_PARAM_DEFAULTS: dict[tuple[str, str, str], object] = {
+    ("post", "/sync/unified/all", "dry_run"): True,
+}
+
 
 async def _fetch_spec(url: str, cache_key: str) -> Optional[dict]:
     now = time.time()
@@ -79,6 +167,25 @@ def _merge_schemas(base_spec: dict, downstream_schemas: dict, namespace: str) ->
     return rename
 
 
+def _apply_examples(path: str, operations: dict) -> None:
+    """Add this module's safe examples/defaults to a merged path item."""
+    for method, op in operations.items():
+        if not isinstance(op, dict):
+            continue
+        example = _BODY_EXAMPLES.get((method, path))
+        if example is not None:
+            # A route whose downstream spec declares no body still takes JSON.
+            request_body = op.setdefault(
+                "requestBody", {"content": {"application/json": {"schema": {"type": "object"}}}}
+            )
+            for media in request_body.get("content", {}).values():
+                media["example"] = example
+        for param in op.get("parameters", []):
+            key = (method, path, param.get("name"))
+            if key in _PARAM_DEFAULTS:
+                param.setdefault("schema", {})["default"] = _PARAM_DEFAULTS[key]
+
+
 def _merge_paths(
     base_spec: dict,
     downstream_paths: dict,
@@ -107,6 +214,7 @@ def _merge_paths(
                 op["operationId"] = f"{op_id_prefix}{op['operationId']}"
             if description_banner:
                 op["description"] = f"{description_banner}\n\n{op.get('description', '')}".rstrip()
+        _apply_examples(new_path, rewritten)
         base_spec["paths"][new_path] = rewritten
         merged_any = True
     return merged_any
