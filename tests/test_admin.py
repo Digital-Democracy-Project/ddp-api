@@ -314,6 +314,23 @@ def test_public_docs_hide_admin_routes(test_client):
     assert admin_paths == [], f"Admin routes leaked into public schema: {admin_paths}"
 
 
+def test_public_spec_has_no_admin_schemas(key_store_with_test_keys, test_client):
+    """Admin request/response models must not appear in the public document either (API-11)."""
+    h = {"Authorization": f"Bearer {key_store_with_test_keys['admin']}"}
+    admin = test_client.get("/admin/openapi.json", headers=h).json()
+    public = test_client.get("/openapi.json").json()
+    admin_only = set(admin["components"]["schemas"]) - {"HTTPValidationError", "ValidationError"}
+    assert "IssueKeyRequest" in admin_only
+    assert admin_only & set(public["components"]["schemas"]) == set()
+
+
+def test_admin_openapi_shows_only_admin_routes(key_store_with_test_keys, test_client):
+    """/admin/docs must keep listing the key-management routes, and nothing else (API-11)."""
+    h = {"Authorization": f"Bearer {key_store_with_test_keys['admin']}"}
+    paths = set(test_client.get("/admin/openapi.json", headers=h).json()["paths"])
+    assert paths == {"/admin/keys", "/admin/keys/{key_id}", "/admin/keys/{key_id}/rotate", "/admin/reload"}
+
+
 def test_admin_openapi_requires_auth(test_client):
     # 401 = no header present; HTTPBearer distinguishes from 403 (wrong scope)
     assert test_client.get("/admin/openapi.json").status_code == 401

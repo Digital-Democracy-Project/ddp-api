@@ -368,6 +368,8 @@ pip install -e /path/to/FillWebflowFields
 pip install git+https://github.com/VotingRightsBrigade/FillWebflowFields.git
 ```
 
+FastAPI is held to `>=0.128.0,<0.142.0` in `requirements.txt`: 0.128.0 is what production runs and 0.141.1 is the newest tested. Run the suite on the new version before raising the ceiling.
+
 ### Development
 
 ```bash
