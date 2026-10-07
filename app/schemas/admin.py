@@ -1,7 +1,11 @@
 """Admin request/response models for API key management."""
 
 from typing import Literal, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+# The name pre-filled on /admin/docs. A key request using it is refused, so
+# clicking Execute on the unmodified example saves nothing (API-8).
+EXAMPLE_KEY_NAME = "EXAMPLE-DO-NOT-USE"
 
 
 class IssueKeyRequest(BaseModel):
@@ -11,12 +15,18 @@ class IssueKeyRequest(BaseModel):
     environment: Optional[Literal["dev", "prod"]] = None  # independent of restrictions -- see API-5
     expires_at: Optional[str] = None      # ISO 8601 UTC
 
-    # Issuing a key always writes to the key store, so there is no fully
-    # inert example (API-7). This one is read-only and already expired, so
-    # the key it creates can never authenticate anything.
+    @field_validator("name")
+    @classmethod
+    def _refuse_example_name(cls, name: str) -> str:
+        if name.strip() == EXAMPLE_KEY_NAME:
+            raise ValueError(
+                f"{EXAMPLE_KEY_NAME!r} is the placeholder name from the docs example. "
+                "No key was created. Use a real name to issue a key."
+            )
+        return name
+
     model_config = ConfigDict(json_schema_extra={"examples": [
-        {"name": "EXAMPLE-DO-NOT-USE", "scopes": ["read"],
-         "expires_at": "2000-01-01T00:00:00Z"}
+        {"name": EXAMPLE_KEY_NAME, "scopes": ["read"]}
     ]})
 
 
