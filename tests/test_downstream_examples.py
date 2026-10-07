@@ -73,3 +73,16 @@ def test_broker_post_with_no_declared_body_gets_one(monkeypatch):
     spec = _merge(monkeypatch, downstream, dso.merge_broker)
     body = spec["paths"]["/broker/api/bill-organization-positions/"]["post"]["requestBody"]
     assert body["content"]["application/json"]["example"]["jurisdiction"] == "ZZ"
+
+
+def test_every_example_key_is_consumed_by_the_merge(monkeypatch):
+    """A typo'd or unreachable key would silently leave Swagger's "string" in
+    place, so run each key through the real merge and require it to attach."""
+    prefixes = {"/sync": "/ddp-sync/v1", "/broker": ""}
+    merges = {"/sync": dso.merge_ddp_sync, "/broker": dso.merge_broker}
+    for (method, path), example in dso._BODY_EXAMPLES.items():
+        root = "/broker" if path.startswith("/broker") else "/sync"
+        downstream_path = prefixes[root] + (path[len("/broker"):] if root == "/broker" else path)
+        spec = _merge(monkeypatch, {"paths": {downstream_path: {method: {"summary": "x"}}}}, merges[root])
+        body = spec["paths"][path][method]["requestBody"]["content"]["application/json"]
+        assert body["example"] == example, f"{method.upper()} {path} was not applied"
