@@ -28,7 +28,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.post("/keys", response_model=IssueKeyResponse)
 async def issue_key(req: IssueKeyRequest, _key=Depends(admin_auth)):
-    """Issue a new API key. The plaintext is shown exactly once — store it securely."""
+    """Issue a new API key. The plaintext is shown exactly once — store it securely.
+
+    This route always saves a key, even from the pre-filled example. The example is a
+    stopgap: a read-only key that is already expired, so it cannot authenticate anything,
+    but each Execute still adds a row to the key list. API-8 replaces it with a check.
+    """
     from app.services.key_store import get_key_store
     plaintext, key = get_key_store().issue(
         name=req.name,

@@ -41,6 +41,39 @@ _BODY_EXAMPLES: dict[tuple[str, str], dict] = {
         "slug": "example-do-not-use",
         "dry_run": True,
     },
+    # ddp-sync /trigger routes with a JSON body. Both batch-style routes honour
+    # dry_run ("preview scope without dispatching anything"), so it is true.
+    ("post", "/trigger/bill-artifact-generation"): {
+        "jurisdiction_iso2": "FL",
+        "session_code": "2026F",
+        "artifact_types": ["bill_summary"],
+        "include_org_research": False,
+        "include_concept_statements": False,
+        "limit": 1,
+        "retry_failed": False,
+        "dry_run": True,
+    },
+    ("post", "/trigger/legbot-analyze-bill-full"): {
+        "bill_openstates_id": _NIL_UUID,
+        "jurisdiction": "FL",
+        "session_code": "2026F",
+        "gov_id": "HB1",
+        "bill_source": "https://example.invalid/",
+        "artifact_types": ["bill_summary"],
+        "include_org_research": False,
+        "include_concept_statements": False,
+        "retry_failed": False,
+        "dry_run": True,
+    },
+    # No dry_run on this one. ddp-sync rejects the unknown artifact_type (400)
+    # and, past that, the all-zero bill id (404), both before any write.
+    ("post", "/trigger/legbot-analyze-bill"): {
+        "bill_openstates_id": _NIL_UUID,
+        "jurisdiction": "FL",
+        "session_code": "2026F",
+        "bill_source": "https://example.invalid/",
+        "artifact_type": "EXAMPLE-DO-NOT-USE",
+    },
     # ddp-broker-py has no dry-run mode. Every broker example below is rejected
     # with a 400 by the broker's serializer/view BEFORE any write: the bill
     # ("ZZ", all-zero UUID) or parent row they point at cannot exist, or one
@@ -114,6 +147,25 @@ _BODY_EXAMPLES: dict[tuple[str, str], dict] = {
 # Query-parameter defaults that make a route's unmodified "Try it out" a preview.
 _PARAM_DEFAULTS: dict[tuple[str, str, str], object] = {
     ("post", "/sync/unified/all", "dry_run"): True,
+    ("post", "/trigger/legislator-bio-sync", "dry_run"): True,
+}
+
+# Routes that start a real job the moment Execute is clicked and have no
+# dry-run mode or input to make safe (API-7). A warning is a reminder, not a
+# block; API-9 covers blocking. tests/test_downstream_spec_guard.py fails when
+# a route like this is added downstream without being listed here.
+_JOB_WARNING = (
+    "**WARNING: this starts a real job.** Clicking Execute runs it immediately. "
+    "There is no preview mode and nothing to fill in. Only click Execute if you mean to run it."
+)
+_JOB_STARTERS: set[tuple[str, str]] = {
+    ("post", "/trigger/user-sync"),
+    ("post", "/trigger/full-sync"),
+    ("post", "/trigger/bill-version-check"),
+    ("post", "/trigger/bill-status-sync"),
+    ("post", "/trigger/votebot-eval"),
+    ("post", "/trigger/grantbot-scrape-funders"),
+    ("post", "/openstates/ddp/search/refresh"),
 }
 
 
@@ -172,6 +224,8 @@ def _apply_examples(path: str, operations: dict) -> None:
     for method, op in operations.items():
         if not isinstance(op, dict):
             continue
+        if (method, path) in _JOB_STARTERS:
+            op["description"] = f"{_JOB_WARNING}\n\n{op.get('description', '')}".rstrip()
         example = _BODY_EXAMPLES.get((method, path))
         if example is not None:
             # A route whose downstream spec declares no body still takes JSON.

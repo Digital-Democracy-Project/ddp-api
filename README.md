@@ -443,7 +443,7 @@ Once running, interactive API documentation is available at:
 - **Public ReDoc:** `http://localhost:5000/redoc`
 - **Admin Swagger UI:** `http://localhost:5000/admin/docs` — requires an admin-scoped key; shows key management endpoints
 
-The request-body examples in Swagger are for **non-destructive testing**: run unmodified, none of them writes or deletes real data. Routes with a `dry_run` flag default it to `true`; routes without one use obviously fake ids (`EXAMPLE-DO-NOT-USE`) that match nothing, so the upstream rejects them. `WS` and `Csrf-Token` for the Voatz routes come from the `/get_tokens` response. `tests/test_openapi_examples.py` enforces this.
+The request-body examples in Swagger are for **non-destructive testing**: run unmodified, none of them writes or deletes real data. Routes with a `dry_run` flag default it to `true`; routes without one use obviously fake ids (`EXAMPLE-DO-NOT-USE`) that match nothing, so the upstream rejects them. `WS` and `Csrf-Token` for the Voatz routes come from the `/get_tokens` response. `tests/test_openapi_examples.py` and `tests/test_downstream_spec_guard.py` enforce this. Routes that start a real job when Execute is clicked and have nothing to fill in (`/trigger/user-sync`, `/trigger/full-sync`, `/trigger/bill-version-check`, `/trigger/bill-status-sync`, `/trigger/votebot-eval`, `/trigger/grantbot-scrape-funders`, `/openstates/ddp/search/refresh`) carry a visible warning instead; a warning does not block them, so Execute on those routes is not safe (blocking is API-9). `POST /admin/keys` (admin docs only) always saves a key; its example is a read-only key that is already expired, a stopgap until API-8.
 
 ## AWS Secrets Manager Setup
 
