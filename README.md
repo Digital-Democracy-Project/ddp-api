@@ -443,6 +443,8 @@ Once running, interactive API documentation is available at:
 - **Public ReDoc:** `http://localhost:5000/redoc`
 - **Admin Swagger UI:** `http://localhost:5000/admin/docs` — requires an admin-scoped key; shows key management endpoints
 
+The request-body examples in Swagger are for **non-destructive testing**: run unmodified, none of them writes or deletes real data. Routes with a `dry_run` flag default it to `true`; routes without one use obviously fake ids (`EXAMPLE-DO-NOT-USE`) that match nothing, so the upstream rejects them. `WS` and `Csrf-Token` for the Voatz routes come from the `/get_tokens` response. `tests/test_openapi_examples.py` enforces this.
+
 ## AWS Secrets Manager Setup
 
 ### 1. Create the Secret

@@ -1,7 +1,15 @@
 """Common Pydantic models for request/response validation."""
 
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+# Examples shown on /docs are for non-destructive testing (API-7): running one
+# unmodified must never write or delete real data. Where an endpoint has no
+# dry-run mode the example uses obviously fake values that cannot match a real
+# record or credential, so the upstream rejects the call.
+EXAMPLE_ID = "EXAMPLE-DO-NOT-USE"
+WS_HINT = "<WS from /get_tokens>"
+CSRF_HINT = "<Csrf-Token from /get_tokens>"
 
 
 class StatusResponse(BaseModel):
@@ -24,6 +32,10 @@ class TokenRequest(BaseModel):
     emailAddress: str
     password: str
     organizationid: int
+
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"emailAddress": "user@example.com", "password": EXAMPLE_ID, "organizationid": 1}
+    ]})
 
 
 class TokenResponse(BaseModel):
@@ -50,6 +62,9 @@ class GetUsersRequest(BaseModel):
 
     class Config:
         populate_by_name = True
+        json_schema_extra = {"examples": [
+            {"organizationId": 1, "WS": WS_HINT, "Csrf-Token": CSRF_HINT}
+        ]}
 
 
 class UsersResponse(BaseModel):
@@ -80,6 +95,10 @@ class UserUpdatesRequest(BaseModel):
 
     class Config:
         populate_by_name = True
+        json_schema_extra = {"examples": [
+            {"organizationId": 1, "WS": WS_HINT, "Csrf-Token": CSRF_HINT,
+             "brevo_api_key": EXAMPLE_ID, "brevo_list_id": 1}
+        ]}
 
 
 class UserUpdatesResponse(BaseModel):
@@ -108,6 +127,9 @@ class GetEventsRequest(BaseModel):
 
     class Config:
         populate_by_name = True
+        json_schema_extra = {"examples": [
+            {"organizationId": 1, "WS": WS_HINT, "Csrf-Token": CSRF_HINT, "limit": 10}
+        ]}
 
 
 class EventsResponse(BaseModel):
@@ -130,6 +152,10 @@ class CreateEventRequest(BaseModel):
     class Config:
         populate_by_name = True
         extra = "allow"  # Allow additional fields for event data
+        # Creates a Voatz event: fake session values so Voatz rejects it.
+        json_schema_extra = {"examples": [
+            {"organizationId": 1, "WS": EXAMPLE_ID, "Csrf-Token": EXAMPLE_ID}
+        ]}
 
 
 class CreateEventResponse(BaseModel):
@@ -149,6 +175,12 @@ class UpdateSegmentRequest(BaseModel):
     segment_id: int
     attribute_name: str
     attribute_value: Optional[Any] = None
+
+    # Bulk-updates Brevo contacts: fake key/segment so Brevo rejects it.
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"brevo_api_key": EXAMPLE_ID, "segment_id": 1,
+         "attribute_name": "EXAMPLE_ATTRIBUTE", "attribute_value": "EXAMPLE"}
+    ]})
 
 
 class UpdateSegmentResponse(BaseModel):
@@ -179,6 +211,11 @@ class ChatRequest(BaseModel):
     session_id: str
     page_context: Optional[PageContext] = None
 
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"message": "What does this bill do?", "session_id": "example-session-1",
+         "page_context": {"type": "bill", "bill_id": "EXAMPLE-DO-NOT-USE"}}
+    ]})
+
 
 class FeedbackRequest(BaseModel):
     """Request model for VoteBot feedback endpoint."""
@@ -186,3 +223,9 @@ class FeedbackRequest(BaseModel):
     message_id: str
     feedback_type: str  # "positive" or "negative"
     feedback_text: Optional[str] = None
+
+    # Stores feedback: a fake session/message id that matches nothing real.
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"session_id": EXAMPLE_ID, "message_id": EXAMPLE_ID,
+         "feedback_type": "positive", "feedback_text": "EXAMPLE - ignore"}
+    ]})
