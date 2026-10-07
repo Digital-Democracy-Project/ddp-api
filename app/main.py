@@ -150,14 +150,16 @@ async def public_openapi():
     from app.routes.openstates_proxy import OPENSTATES_SERVICE_URL
     from app.services.docs_try_it_out import mark_write_operations
     from app.services.downstream_openapi import merge_broker, merge_ddp_sync, merge_openstates
+    from app.services.spec_filter import filter_paths, is_admin_path
 
     spec = get_openapi(
         title="DDP-API",
         version="2.0.0",
         description=PUBLIC_API_DESCRIPTION,
-        routes=[r for r in app.routes if not getattr(r, "path", "").startswith("/admin")],
+        routes=app.routes,
         tags=TAGS_METADATA,
     )
+    filter_paths(spec, lambda p: not is_admin_path(p))
     await merge_ddp_sync(spec, DDP_SYNC_SERVICE_URL)
     await merge_openstates(spec, OPENSTATES_SERVICE_URL)
     await merge_broker(spec, EC2_BROKER_SERVICE_URL)
@@ -191,13 +193,16 @@ async def public_redoc():
 @app.get("/admin/openapi.json", include_in_schema=False)
 async def admin_openapi(_key=Depends(admin_auth)):
     from fastapi.openapi.utils import get_openapi
-    return get_openapi(
+    from app.services.spec_filter import filter_paths, is_admin_path
+    spec = get_openapi(
         title="DDP-API Admin",
         version="2.0.0",
         description="DDP-API admin endpoints — key management",
-        routes=[r for r in app.routes if getattr(r, "path", "").startswith("/admin")],
+        routes=app.routes,
         tags=[{"name": "admin", "description": "Issue, list, revoke, and rotate scoped API keys."}],
     )
+    filter_paths(spec, is_admin_path)
+    return spec
 
 
 @app.get("/admin/docs", include_in_schema=False)

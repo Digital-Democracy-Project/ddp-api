@@ -25,18 +25,25 @@ def _dependencies(dependant, found=None):
 
 
 def _local_mutating_routes():
-    """(method, path) -> auth dependencies, for ddp-api's own routes."""
+    """(method, path) -> auth dependencies, for ddp-api's own routes.
+
+    FastAPI 0.141 wraps routers added with include_router in objects holding the
+    original router; 0.128 (production) keeps plain routes. Handle both.
+    """
     routes = {}
-    for included in app.routes:
-        if not hasattr(included, "original_router"):
-            continue
-        prefix = getattr(included.include_context, "prefix", "") or ""
-        for route in included.original_router.routes:
-            if not hasattr(route, "methods"):
-                continue
-            for method in route.methods:
-                if method.lower() in tio.MUTATING:
-                    routes[(method.lower(), prefix + route.path)] = _dependencies(route.dependant)
+
+    def add(route, prefix=""):
+        for method in getattr(route, "methods", None) or ():
+            if method.lower() in tio.MUTATING:
+                routes[(method.lower(), prefix + route.path)] = _dependencies(route.dependant)
+
+    for top in app.routes:
+        if hasattr(top, "original_router"):
+            prefix = getattr(top.include_context, "prefix", "") or ""
+            for route in top.original_router.routes:
+                add(route, prefix)
+        else:
+            add(top)
     return routes
 
 
