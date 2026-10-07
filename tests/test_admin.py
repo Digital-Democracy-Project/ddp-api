@@ -333,3 +333,24 @@ def test_admin_docs_accessible_with_admin_key(key_store_with_test_keys, test_cli
     keys = key_store_with_test_keys
     h    = {"Authorization": f"Bearer {keys['admin']}"}
     assert test_client.get("/admin/docs", headers=h).status_code == 200
+
+
+def test_example_key_name_is_refused_and_saves_nothing(key_store_with_test_keys, test_client):
+    """The unmodified /admin/docs example must not create a key (API-8)."""
+    from app.schemas.admin import IssueKeyRequest
+
+    h = {"Authorization": f"Bearer {key_store_with_test_keys['admin']}"}
+    before = test_client.get("/admin/keys", headers=h).json()["total"]
+    example = IssueKeyRequest.model_json_schema()["examples"][0]
+
+    resp = test_client.post("/admin/keys", json=example, headers=h)
+
+    assert resp.status_code == 422
+    assert "No key was created" in resp.json()["detail"][0]["msg"]
+    assert test_client.get("/admin/keys", headers=h).json()["total"] == before
+
+
+def test_real_key_name_still_issues(key_store_with_test_keys, test_client):
+    h = {"Authorization": f"Bearer {key_store_with_test_keys['admin']}"}
+    resp = test_client.post("/admin/keys", json={"name": "EXAMPLE-DO-NOT-USE-2", "scopes": ["read"]}, headers=h)
+    assert resp.status_code == 200

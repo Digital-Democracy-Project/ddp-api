@@ -4,9 +4,9 @@ Every mutating operation with a JSON body must ship an example, and no example
 may switch dry-run off or a destructive flag on. Built from ddp-api's own
 routes only, so it needs no downstream service.
 
-One example cannot be inert: POST /admin/keys always writes to the key store.
-It ships a read-only, already-expired key named EXAMPLE-DO-NOT-USE, and lives
-on /admin/docs only (admin auth), never the public /docs.
+POST /admin/keys always writes, so its example uses the placeholder name
+EXAMPLE-DO-NOT-USE, which the request model refuses (API-8). It lives on
+/admin/docs only (admin auth), never the public /docs.
 """
 import pytest
 from fastapi.openapi.utils import get_openapi
@@ -78,4 +78,6 @@ def _models_with_examples():
 @pytest.mark.parametrize("name,model", list(_models_with_examples()), ids=lambda v: v if isinstance(v, str) else "")
 def test_examples_validate_against_their_model(name, model):
     for example in model.model_json_schema(by_alias=True)["examples"]:
+        if name == "IssueKeyRequest":
+            continue  # refused on purpose; tests/test_admin.py covers it
         model.model_validate(example)
