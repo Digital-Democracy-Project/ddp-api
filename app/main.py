@@ -171,10 +171,12 @@ async def public_openapi():
 async def public_docs():
     from fastapi.openapi.docs import get_swagger_ui_html
     from fastapi.responses import HTMLResponse
-    from app.services.docs_try_it_out import with_write_block
+    from app.services.docs_try_it_out import SWAGGER_UI_CSS_URL, SWAGGER_UI_JS_URL, with_write_block
     page = get_swagger_ui_html(
         openapi_url="/openapi.json",
         title="DDP-API",
+        swagger_js_url=SWAGGER_UI_JS_URL,
+        swagger_css_url=SWAGGER_UI_CSS_URL,
         swagger_ui_parameters={"persistAuthorization": True},
     )
     return HTMLResponse(with_write_block(page.body.decode()))

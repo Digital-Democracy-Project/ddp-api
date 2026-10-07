@@ -6,6 +6,7 @@ on flagged operations. The plugin itself runs in the browser, so it is checked
 by hand (see the PR); these tests pin everything the server decides.
 """
 import asyncio
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -121,3 +122,27 @@ def test_docs_page_loads_the_plugin():
 def test_plugin_injection_fails_loudly_on_a_changed_template():
     with pytest.raises(RuntimeError):
         tio.with_write_block("<html>not swagger</html>")
+
+
+_EXACT_VERSION = re.compile(r"\d+\.\d+\.\d+")
+
+
+def swagger_ui_versions(html):
+    """The version part of every swagger-ui-dist@<version> reference on the page."""
+    return re.findall(r"swagger-ui-dist@([^/\"']+)/", html)
+
+
+def test_docs_page_pins_one_exact_swagger_ui_version():
+    """A floating @5 would let a CDN release silently undo the write block (API-10)."""
+    versions = swagger_ui_versions(TestClient(app).get("/docs").text)
+    assert len(versions) == 2, "expected the script and the stylesheet"  # js + css
+    assert set(versions) == {tio.SWAGGER_UI_VERSION}
+    assert _EXACT_VERSION.fullmatch(tio.SWAGGER_UI_VERSION)
+
+
+@pytest.mark.parametrize("floating", ["5", "5.33", "latest", "^5.0.0"])
+def test_a_floating_swagger_ui_reference_is_caught(floating):
+    page = f'<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@{floating}/swagger-ui-bundle.js"></script>'
+    versions = swagger_ui_versions(page)
+    assert versions == [floating]
+    assert not _EXACT_VERSION.fullmatch(versions[0])

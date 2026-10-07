@@ -10,6 +10,20 @@ send any request directly.
 
 MUTATING = {"post", "put", "patch", "delete"}
 
+# The public /docs page loads Swagger UI from this exact version, never a floating
+# `@5`: the plugin below depends on Swagger UI internals, and a new 5.x release that
+# changes them would bring every write button back with no error and no failing test.
+# 5.33.1 is the version the API-9 browser check passed on (released 2026-10-01).
+#
+# To upgrade on purpose: change SWAGGER_UI_VERSION, run the app locally, open /docs,
+# expand every operation (click each summary) and confirm that GET operations and the
+# READ_ONLY_POSTS below have "Try it out" and every other POST/PUT/PATCH/DELETE has none.
+# Only then merge. tests/test_docs_try_it_out.py fails if the page stops using an exact version.
+SWAGGER_UI_VERSION = "5.33.1"
+_SWAGGER_UI_CDN = f"https://cdn.jsdelivr.net/npm/swagger-ui-dist@{SWAGGER_UI_VERSION}"
+SWAGGER_UI_JS_URL = f"{_SWAGGER_UI_CDN}/swagger-ui-bundle.js"
+SWAGGER_UI_CSS_URL = f"{_SWAGGER_UI_CDN}/swagger-ui.css"
+
 # POST routes that only need a read key, so Try it out stays on for them.
 # tests/test_docs_try_it_out.py checks each one against its real auth dependency.
 READ_ONLY_POSTS: set[tuple[str, str]] = {
