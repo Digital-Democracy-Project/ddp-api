@@ -445,6 +445,8 @@ Once running, interactive API documentation is available at:
 
 The request-body examples in Swagger are for **non-destructive testing**: run unmodified, none of them writes or deletes real data. Routes with a `dry_run` flag default it to `true`; routes without one use obviously fake ids (`EXAMPLE-DO-NOT-USE`) that match nothing, so the upstream rejects them. `WS` and `Csrf-Token` for the Voatz routes come from the `/get_tokens` response. `tests/test_openapi_examples.py` enforces this.
 
+On the public `/docs` page, **"Try it out" is turned off for write actions** (every POST/PUT/PATCH/DELETE except the read-scoped POSTs listed in `READ_ONLY_POSTS` in `app/services/docs_try_it_out.py`), so one click on Execute cannot start a job or change data. This only changes the docs page: the API, keys and scopes are untouched, and a caller can still send any request directly with their key. A new write route is blocked by default; `tests/test_docs_try_it_out.py` fails if a write-scoped route is added to the read-only list. `/admin/docs` is unchanged.
+
 ## AWS Secrets Manager Setup
 
 ### 1. Create the Secret

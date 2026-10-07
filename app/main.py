@@ -95,7 +95,9 @@ PUBLIC_API_DESCRIPTION = (
     "Digital Democracy Project API — auth gateway and service proxy.\n\n"
     "**Trying endpoints from this page:** click **Authorize** (top right) and paste "
     "your DDP API key. Without a key, \"Try it out\" returns `401 Not authenticated`. "
-    "Keys are issued by a DDP admin."
+    "Keys are issued by a DDP admin.\n\n"
+    "**Read actions only:** \"Try it out\" is turned off for write actions on this page. "
+    "Call those directly with your key."
 )
 
 
@@ -146,6 +148,7 @@ async def public_openapi():
     from app.routes.broker_proxy import EC2_BROKER_SERVICE_URL
     from app.routes.ddp_sync_proxy import DDP_SYNC_SERVICE_URL
     from app.routes.openstates_proxy import OPENSTATES_SERVICE_URL
+    from app.services.docs_try_it_out import mark_write_operations
     from app.services.downstream_openapi import merge_broker, merge_ddp_sync, merge_openstates
 
     spec = get_openapi(
@@ -158,17 +161,21 @@ async def public_openapi():
     await merge_ddp_sync(spec, DDP_SYNC_SERVICE_URL)
     await merge_openstates(spec, OPENSTATES_SERVICE_URL)
     await merge_broker(spec, EC2_BROKER_SERVICE_URL)
+    mark_write_operations(spec)
     return spec
 
 
 @app.get("/docs", include_in_schema=False)
 async def public_docs():
     from fastapi.openapi.docs import get_swagger_ui_html
-    return get_swagger_ui_html(
+    from fastapi.responses import HTMLResponse
+    from app.services.docs_try_it_out import with_write_block
+    page = get_swagger_ui_html(
         openapi_url="/openapi.json",
         title="DDP-API",
         swagger_ui_parameters={"persistAuthorization": True},
     )
+    return HTMLResponse(with_write_block(page.body.decode()))
 
 
 @app.get("/redoc", include_in_schema=False)
