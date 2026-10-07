@@ -1,7 +1,12 @@
 """Pydantic request/response models for Webflow CMS endpoints."""
 
 from typing import Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+# Examples shown on /docs are for non-destructive testing (API-7): running one
+# unmodified must never write or delete real data. Endpoints with a dry-run
+# mode default it on; the rest use a fake id that matches nothing in Webflow.
+EXAMPLE_ID = "EXAMPLE-DO-NOT-USE"
 
 
 # ------------------------------------------------------------------
@@ -80,11 +85,17 @@ class FillGovUrlRequest(BaseModel):
     gov_url: str
     collection_id: Optional[str] = None
 
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"item_id": EXAMPLE_ID, "gov_url": "https://example.com/bill"}
+    ]})
+
 
 class FillSessionCodeRequest(BaseModel):
     """Fill session-code/bill-prefix/bill-number for all items."""
     collection_id: Optional[str] = None
     dry_run: bool = False
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"dry_run": True}]})
 
 
 class FillMapUrlRequest(BaseModel):
@@ -92,16 +103,26 @@ class FillMapUrlRequest(BaseModel):
     collection_id: Optional[str] = None
     dry_run: bool = False
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{"dry_run": True}]})
+
 
 class BillOrgSyncRequest(BaseModel):
     """Sync bill-org references."""
     bills_collection_id: Optional[str] = None
     orgs_collection_id: Optional[str] = None
 
+    # No dry-run mode: fake collection ids so Webflow rejects the call.
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"bills_collection_id": EXAMPLE_ID, "orgs_collection_id": EXAMPLE_ID}
+    ]})
+
 
 class OrgAboutFieldsRequest(BaseModel):
     """Parse about-organization into sub-fields."""
     orgs_collection_id: Optional[str] = None
+
+    # No dry-run mode: a fake collection id so Webflow rejects the call.
+    model_config = ConfigDict(json_schema_extra={"examples": [{"orgs_collection_id": EXAMPLE_ID}]})
 
 
 class OrgMissingFieldsRequest(BaseModel):
@@ -109,6 +130,10 @@ class OrgMissingFieldsRequest(BaseModel):
     orgs_collection_id: Optional[str] = None
     fields_to_check: list[str]
     send_zapier_hooks: bool = True
+
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"fields_to_check": ["email"], "send_zapier_hooks": False}
+    ]})
 
 
 class OrgMissingFieldsItem(BaseModel):
@@ -128,6 +153,8 @@ class FindDuplicatesRequest(BaseModel):
     """Find duplicate and companion bills."""
     collection_id: Optional[str] = None
 
+    model_config = ConfigDict(json_schema_extra={"examples": [{}]})
+
 
 class FindDuplicatesResponse(BaseModel):
     """Response with duplicate groups."""
@@ -145,6 +172,12 @@ class ResolveDuplicateGroupRequest(BaseModel):
     migrate_content: bool = True
     delete_anomalous: bool = True
 
+    # No dry-run mode: fake item ids, with migrate and delete switched off.
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"correct_item_id": EXAMPLE_ID, "anomalous_item_ids": [EXAMPLE_ID],
+         "migrate_content": False, "delete_anomalous": False}
+    ]})
+
 
 class ResolveDuplicateGroupResponse(BaseModel):
     """Response for duplicate group resolution."""
@@ -157,6 +190,12 @@ class DeleteItemRequest(BaseModel):
     collection_id: Optional[str] = None
     ref_collection_ids: list[str] = []
     force_remove_references: bool = False
+
+    # No dry-run mode: a fake collection id so Webflow rejects the call.
+    model_config = ConfigDict(json_schema_extra={"examples": [
+        {"collection_id": EXAMPLE_ID, "ref_collection_ids": [],
+         "force_remove_references": False}
+    ]})
 
 
 class DeleteItemResponse(BaseModel):
