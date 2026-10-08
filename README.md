@@ -168,6 +168,8 @@ Callers need only a DDP-API read key and an `org_id`. The server fetches Voatz t
 | `/votebot/feedback` | POST | **Write** | Proxy feedback submissions |
 | `/votebot/ws` | WebSocket | — | Bidirectional WebSocket proxy to VoteBot |
 
+> **Deployment note (as of 2026-10-08):** on the production host nginx forwards everything under `/votebot/`, and `/ws/chat`, straight to VoteBot, so these four routes answer on ddp-api's own port (5000) but are **not reachable through the public URL**: a request there gets VoteBot's own 404. The public chat widget uses VoteBot's own paths (`/votebot/v1/*` and the `/ws/chat` WebSocket), not these.
+
 ### DDP-Sync Proxy Endpoints (catch-all)
 
 These routes forward to DDP-Sync (:8001) automatically. New DDP-Sync endpoints are available without DDP-API code changes.
@@ -183,7 +185,7 @@ Common paths: `/sync/unified` (trigger sync), `/sync/unified/status/{id}` (poll 
 
 If the resolved key carries an `environment` tag (`"dev"`/`"prod"` — see [Environment tag](#environment-tag)), it is forwarded as an `X-DDP-Environment` header on the outgoing request to `ddp-sync`. Keys with no tag send no such header.
 
-`/docs` shows DDP-Sync's real request/response schemas here, not just the generic `{path}` shape — `public_openapi()` fetches DDP-Sync's own `/openapi.json` at doc-generation time (cached 5 min) and splices its `/sync/*`/`/trigger/*` paths in. Falls back to the generic catch-all shape if DDP-Sync is unreachable. See `app/services/downstream_openapi.py`.
+`/docs` shows DDP-Sync's real request/response schemas here, not just the generic `{path}` shape — `public_openapi()` fetches DDP-Sync's own `/openapi.json` at doc-generation time (cached 5 min) and splices its `/sync/*`/`/trigger/*` paths in. Falls back to the generic catch-all shape if DDP-Sync is unreachable. See `app/services/downstream_openapi.py`. Those schemas come from the ddp-sync at `localhost:8001` on the ddp-api host, a legacy instance that serves the Webflow-based site, so routes that exist only in newer ddp-sync releases (for example `/trigger/legbot-analyze-bill`) do not appear on `/docs` and are not reachable through this proxy.
 
 ### DDP-OpenStates Proxy Endpoints
 
@@ -309,7 +311,7 @@ curl -s -X POST $BASE/admin/keys/key_abc123/rotate \
 | `VOTEBOT_SERVICE_URL` | VoteBot HTTP service URL | `http://localhost:8000` |
 | `VOTEBOT_WS_URL` | VoteBot WebSocket URL | `ws://localhost:8000/ws/chat` |
 | `VOTEBOT_API_KEY` | API key for VoteBot authentication | (required for VoteBot) |
-| `DDP_SYNC_SERVICE_URL` | DDP-Sync HTTP service URL | `http://localhost:8001` |
+| `DDP_SYNC_SERVICE_URL` | **Not read from the environment.** Hard-coded to `http://localhost:8001` in `app/routes/ddp_sync_proxy.py`; setting this variable has no effect | `http://localhost:8001` |
 | `DDP_SYNC_API_KEY` | API key for DDP-Sync authentication (fallback) | (in Secrets Manager) |
 | `OPENSTATES_SERVICE_URL` | OpenStates api-v3 URL — whichever instance holds DDP's scraped data (Mac Studio dev, or production EC2/RDS); update rather than assuming the default is current | `http://10.0.0.8:8002` |
 | `OPENSTATES_PROXY_KEY` | Internal key forwarded to that instance's x-api-key auth — must match a `profiles_profile` row there; not carried over automatically when `OPENSTATES_SERVICE_URL` changes | `00000000-0000-0000-0000-000000000001` |
