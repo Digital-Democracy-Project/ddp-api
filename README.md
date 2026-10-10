@@ -209,6 +209,8 @@ Forwards to production `ddp-broker-py`. The proxy holds its own downstream crede
 
 Same live-schema merge as the DDP-Sync and OpenStates proxies above: `/docs` shows every real ddp-broker-py route (`/broker/api/bills/`, `/broker/api/bill-artifacts/`, etc.) with its actual schema, remounted under `/broker`. ddp-broker-py is Django + drf-spectacular (schema at `/api/schema/`, not `/openapi.json`) — falls back to the generic catch-all shape if it's unreachable.
 
+The input fields Swagger shows for a proxied route come from the downstream service's own schema; ddp-api adds none, apart from the examples and defaults in `app/services/downstream_openapi.py`. A function view that reads `request.query_params` without an `@extend_schema(parameters=...)` shows its `?a=&b=` only in the description, with nothing to fill in. Fix that in the service, not here: six broker routes had this (API-12, `search`, `search/suggest` and the `*/status/` and `current/` routes), fixed in ddp-broker-py PR #422, which also added a test that fails when a GET view documents a `?name=` it does not declare. Still open from API-12: the two broker POST bodies with no schema, and the free-text `{target}`/`{job_name}` path values on `/trigger/openstates-scrape/` and `/trigger/webflow/`.
+
 ### Webflow CMS Endpoints
 
 #### Fill endpoints
