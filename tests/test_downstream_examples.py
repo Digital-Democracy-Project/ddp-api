@@ -104,6 +104,7 @@ EXPECTED_EXAMPLE_KEYS = {
     ("post", "/broker/api/flags/"),
     ("post", "/broker/api/bill-organization-positions/"),
     ("post", "/broker/api/bill-organization-research-runs/"),
+    ("post", "/broker/api/openstates-bill-events/check/"),
 }
 
 
@@ -122,3 +123,31 @@ def test_every_example_key_is_consumed_by_the_merge(monkeypatch):
         spec = _merge(monkeypatch, {"paths": {downstream_path: {method: {"summary": "x"}}}}, merges[root])
         body = spec["paths"][path][method]["requestBody"]["content"]["application/json"]
         assert body["example"] == example, f"{method.upper()} {path} was not applied"
+
+
+def test_broker_login_cookie_routes_are_marked_not_callable(monkeypatch):
+    """Routes the website calls with a visitor's login cookie cannot work through
+    the proxy (service token only, no cookies, no PATCH); /docs says so."""
+    cookie = [{"cookieAuth": []}]
+    downstream = {
+        "paths": {
+            "/api/alerts/{id}/": {"patch": {"security": cookie, "description": "Edit an alert."}},
+            "/api/follows/": {"get": {"security": cookie + [{"cookieAuth": []}]}},
+            "/api/pages/{key}/": {"get": {"security": []}},
+            "/api/media/": {"get": {}},
+            "/api/bills/": {"get": {"security": [{"ServiceTokenAuth": []}]}},
+            "/api/mixed/": {"get": {"security": [{"cookieAuth": []}, {"ServiceTokenAuth": []}]}},
+        }
+    }
+    spec = _merge(monkeypatch, downstream, dso.merge_broker)
+    paths = spec["paths"]
+    for path, method in (("/broker/api/alerts/{id}/", "patch"), ("/broker/api/follows/", "get")):
+        assert dso._SESSION_ONLY_WARNING in paths[path][method]["description"]
+    assert paths["/broker/api/alerts/{id}/"]["patch"]["description"].endswith("Edit an alert.")
+    for path in ("/broker/api/pages/{key}/", "/broker/api/media/", "/broker/api/bills/", "/broker/api/mixed/"):
+        assert dso._SESSION_ONLY_WARNING not in paths[path]["get"].get("description", "")
+
+
+def test_broker_bill_event_check_example_is_inert():
+    example = dso._BODY_EXAMPLES[("post", "/broker/api/openstates-bill-events/check/")]
+    assert example == {"jurisdiction": "ZZ"}
