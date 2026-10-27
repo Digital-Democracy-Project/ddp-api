@@ -135,6 +135,9 @@ _BODY_EXAMPLES: dict[tuple[str, str], dict] = {
         "citation_url": "https://example.invalid/",
     },
     # INERT ONLY BECAUSE positions_found_count IS NEGATIVE: no bill check here.
+    # "ZZ" is not a jurisdiction the broker checks: 400 before anything is
+    # recorded or queued. Do not "fix" it; a real code queues a real check.
+    ("post", "/broker/api/openstates-bill-events/check/"): {"jurisdiction": "ZZ"},
     ("post", "/broker/api/bill-organization-research-runs/"): {
         "bill_openstates_id": _NIL_UUID,
         "jurisdiction": "ZZ",
@@ -167,6 +170,23 @@ _JOB_STARTERS: set[tuple[str, str]] = {
     ("post", "/trigger/grantbot-scrape-funders"),
     ("post", "/openstates/ddp/search/refresh"),
 }
+
+
+# Broker routes the website's own pages call with a visitor's login cookie
+# (`cookieAuth` in the broker's spec). ddp-api's proxy sends only its service
+# token, drops cookies and does not forward PATCH, so these cannot be used here.
+# They stay listed so the docs describe the whole broker.
+_SESSION_ONLY_WARNING = (
+    "**Not callable through ddp-api.** This route belongs to a signed-in website visitor: "
+    "the broker authenticates it with the visitor's login cookie, and ddp-api sends only "
+    "its service token, so a call made here is refused. Listed for reference."
+)
+
+
+def _is_session_only(op: dict) -> bool:
+    """True when the downstream op's only way in is a browser login cookie."""
+    schemes = [set(req) for req in op.get("security") or []]
+    return bool(schemes) and all(s == {"cookieAuth"} for s in schemes)
 
 
 async def _fetch_spec(url: str, cache_key: str) -> Optional[dict]:
@@ -248,6 +268,7 @@ def _merge_paths(
     tag: str,
     op_id_prefix: str,
     description_banner: Optional[str] = None,
+    session_only_warning: Optional[str] = None,
 ) -> bool:
     """path_map(old_path) -> new_path, or None to skip a path that isn't
     actually reachable through this proxy. Returns True if anything merged."""
@@ -260,6 +281,8 @@ def _merge_paths(
         for op in rewritten.values():
             if not isinstance(op, dict):
                 continue
+            if session_only_warning and _is_session_only(op):
+                op["description"] = f"{session_only_warning}\n\n{op.get('description', '')}".rstrip()
             op["tags"] = [tag]
             # The downstream service's own auth scheme is internal-only --
             # callers authenticate to ddp-api with its bearer token instead.
@@ -346,6 +369,14 @@ async def merge_broker(base_spec: dict, service_url: str) -> None:
     def path_map(old_path: str) -> Optional[str]:
         return f"/broker{old_path}"
 
-    merged = _merge_paths(base_spec, spec.get("paths", {}), path_map, rename, tag="broker", op_id_prefix="broker__")
+    merged = _merge_paths(
+        base_spec,
+        spec.get("paths", {}),
+        path_map,
+        rename,
+        tag="broker",
+        op_id_prefix="broker__",
+        session_only_warning=_SESSION_ONLY_WARNING,
+    )
     if merged:
         base_spec["paths"].pop("/broker/{path}", None)
